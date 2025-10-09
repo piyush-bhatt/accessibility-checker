@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -63,42 +63,42 @@
     <h1>Test Page - Report System</h1>
 
     <div class="instructions">
-        <h3>📋 Instrucciones de Testing</h3>
+        <h3>📋 Testing Instructions</h3>
         <ol>
-            <li>Abre esta página con: <code>test-page-report.html?applicationId=TEST_FLOW#/page1</code></li>
-            <li>Abre el popup de la extensión</li>
-            <li>Ingresa: <code>test-container</code></li>
-            <li>Habilita todos los checks</li>
+            <li>Open this page with: <code>test-page-report.html?applicationId=TEST_FLOW#/page1</code></li>
+            <li>Open the extension popup</li>
+            <li>Enter: <code>test-container</code></li>
+            <li>Enable all checks</li>
             <li>Click "Run Analysis"</li>
-            <li>Verifica que encuentra ~10 errores</li>
-            <li>Cambia la URL a: <code>#/page2</code></li>
-            <li>Ejecuta análisis nuevamente</li>
-            <li>Click "View Details" en el popup</li>
-            <li>Verifica que hay 2 páginas (page1 y page2)</li>
+            <li>Verify it finds ~10 errors</li>
+            <li>Change the URL to: <code>#/page2</code></li>
+            <li>Run analysis again</li>
+            <li>Click "View Details" in the popup</li>
+            <li>Verify there are 2 pages (page1 and page2)</li>
             <li>Click "Download Excel"</li>
-            <li>Abre el CSV en Excel y verifica el formato</li>
+            <li>Open the CSV in Excel and verify the format</li>
         </ol>
     </div>
 
     <div class="info-box">
-        <strong>💡 URL actual:</strong>
+        <strong>💡 Current URL:</strong>
         <p id="current-url"></p>
-        <strong>Flow detectado:</strong> <span id="flow-name"></span><br>
-        <strong>Página detectada:</strong> <span id="page-name"></span>
+        <strong>Detected flow:</strong> <span id="flow-name"></span><br>
+        <strong>Detected page:</strong> <span id="page-name"></span>
     </div>
 
-    <!-- Contenedor principal para auditar -->
+    <!-- Main container to audit -->
     <div class="test-container">
-        <h2>Área de Testing (test-container)</h2>
+        <h2>Testing Area (test-container)</h2>
 
         <!-- Test 1: Text Size -->
         <div class="test-section">
             <h3>Test 1: Font Size</h3>
             <p class="small-text" id="small-text-1" trackid="text-small" data-testid="small-paragraph">
-                Este texto es demasiado pequeño (10px).
+                This text is too small (10px).
             </p>
             <span class="small-text" id="small-text-2" trackid="text-tiny">
-                Otro texto pequeño sin data-testid.
+                Another small text without data-testid.
             </span>
         </div>
 
@@ -117,10 +117,10 @@
         <div class="test-section">
             <h3>Test 3: Color Contrast</h3>
             <div class="low-contrast" id="low-contrast-1" trackid="warning-box" data-testid="warning-message">
-                Este texto tiene bajo contraste (gris claro sobre gris).
+                This text has low contrast (light gray on gray).
             </div>
             <button class="low-contrast" id="low-contrast-btn" trackid="btn-disabled">
-                Botón con bajo contraste
+                Button with low contrast
             </button>
         </div>
 
@@ -128,10 +128,10 @@
         <div class="test-section">
             <h3>Test 4: ARIA Labels</h3>
             <button id="no-aria-1" trackid="btn-submit" data-testid="submit-action">
-                <!-- Botón sin texto ni aria-label -->
+                <!-- Button without text or aria-label -->
             </button>
             <a href="#" id="no-aria-2" trackid="link-external">
-                <!-- Link sin texto -->
+                <!-- Link without text -->
             </a>
         </div>
 
@@ -146,99 +146,99 @@
             </div>
         </div>
 
-        <!-- Test 6: Elementos Combinados (múltiples errores) -->
+        <!-- Test 6: Combined Elements (multiple errors) -->
         <div class="test-section">
-            <h3>Test 6: Elemento con Múltiples Errores</h3>
+            <h3>Test 6: Element with Multiple Errors</h3>
             <button id="multi-error-btn" trackid="btn-multi-error" data-testid="problematic-button"
                 class="small-button low-contrast" style="font-size: 10px; width: 15px; height: 15px;">
-                <!-- Tiene: tamaño pequeño, bajo contraste, sin ARIA, texto pequeño -->
+                <!-- Has: small size, low contrast, no ARIA, small text -->
                 X
             </button>
         </div>
     </div>
 
     <div class="info-box" style="margin-top: 30px;">
-        <h3>✅ Errores Esperados</h3>
+        <h3>✅ Expected Errors</h3>
         <ul>
-            <li><strong>FONT-SIZE:</strong> ~3 elementos</li>
-            <li><strong>ICON-SIZE:</strong> ~3 elementos</li>
-            <li><strong>CONTRAST:</strong> ~3 elementos</li>
-            <li><strong>ARIA-LABEL:</strong> ~3 elementos</li>
-            <li><strong>EMPTY-ELEMENT:</strong> ~2 elementos</li>
+            <li><strong>FONT-SIZE:</strong> ~3 elements</li>
+            <li><strong>ICON-SIZE:</strong> ~3 elements</li>
+            <li><strong>CONTRAST:</strong> ~3 elements</li>
+            <li><strong>ARIA-LABEL:</strong> ~3 elements</li>
+            <li><strong>EMPTY-ELEMENT:</strong> ~2 elements</li>
         </ul>
-        <p><strong>Total aproximado:</strong> 14-16 errores (algunos elementos tienen múltiples errores)</p>
+        <p><strong>Approximate total:</strong> 14-16 errors (some elements have multiple errors)</p>
     </div>
 
     <div class="instructions">
-        <h3>🧪 Tests Adicionales</h3>
+        <h3>🧪 Additional Tests</h3>
 
-        <h4>Test A: Múltiples Páginas</h4>
+        <h4>Test A: Multiple Pages</h4>
         <ol>
-            <li>Ejecuta análisis en <code>#/page1</code> → Guarda N errores</li>
-            <li>Cambia URL a <code>#/page2</code></li>
-            <li>Ejecuta análisis nuevamente</li>
-            <li>Verifica que el resumen muestra 2 páginas</li>
-            <li>Verifica que los errores se acumulan (no se reemplazan)</li>
+            <li>Run analysis on <code>#/page1</code> → Saves N errors</li>
+            <li>Change URL to <code>#/page2</code></li>
+            <li>Run analysis again</li>
+            <li>Verify the summary shows 2 pages</li>
+            <li>Verify errors accumulate (not replaced)</li>
         </ol>
 
-        <h4>Test B: Re-análisis de Misma Página</h4>
+        <h4>Test B: Re-analysis of Same Page</h4>
         <ol>
-            <li>Ejecuta análisis en <code>#/page1</code> → Nota el número de errores</li>
-            <li>Ejecuta análisis nuevamente (sin cambiar nada)</li>
-            <li>Verifica que el número de errores es el mismo (no se duplica)</li>
+            <li>Run analysis on <code>#/page1</code> → Note the number of errors</li>
+            <li>Run analysis again (without changing anything)</li>
+            <li>Verify the number of errors is the same (not duplicated)</li>
         </ol>
 
-        <h4>Test C: Múltiples Flujos</h4>
+        <h4>Test C: Multiple Flows</h4>
         <ol>
-            <li>Ejecuta análisis con <code>?applicationId=FLOW_A#/page1</code></li>
-            <li>Cambia a <code>?applicationId=FLOW_B#/page1</code></li>
-            <li>Ejecuta análisis</li>
-            <li>Verifica que el resumen muestra 2 flujos</li>
-            <li>Descarga Excel y verifica que hay 2 secciones</li>
+            <li>Run analysis with <code>?applicationId=FLOW_A#/page1</code></li>
+            <li>Change to <code>?applicationId=FLOW_B#/page1</code></li>
+            <li>Run analysis</li>
+            <li>Verify the summary shows 2 flows</li>
+            <li>Download Excel and verify there are 2 sections</li>
         </ol>
 
-        <h4>Test D: Atributos en CSV</h4>
+        <h4>Test D: Attributes in CSV</h4>
         <ol>
-            <li>Ejecuta análisis completo</li>
-            <li>Descarga Excel</li>
-            <li>Verifica que cada fila tiene:
+            <li>Run complete analysis</li>
+            <li>Download Excel</li>
+            <li>Verify each row has:
                 <ul>
                     <li>FLOW NAME: TEST_FLOW</li>
                     <li>PAGE NAME: page1</li>
                     <li>ERROR CODE: FONT-SIZE, ICON-SIZE, etc.</li>
                     <li>ELEMENT TYPE: button, span, div, etc.</li>
-                    <li>ID: los IDs de los elementos</li>
-                    <li>TRACK ID: los trackid de los elementos</li>
-                    <li>DATA-TEST-ID: los data-testid de los elementos</li>
-                    <li>ERROR MESSAGE: mensaje descriptivo</li>
+                    <li>ID: element IDs</li>
+                    <li>TRACK ID: element trackids</li>
+                    <li>DATA-TEST-ID: element data-testids</li>
+                    <li>ERROR MESSAGE: descriptive message</li>
                 </ul>
             </li>
         </ol>
 
         <h4>Test E: Clear Report</h4>
         <ol>
-            <li>Acumula errores en varias páginas</li>
+            <li>Accumulate errors across multiple pages</li>
             <li>Click "Clear Report"</li>
-            <li>Confirma el diálogo</li>
-            <li>Verifica que el resumen muestra "No errors collected yet"</li>
-            <li>Ejecuta análisis nuevamente</li>
-            <li>Verifica que empieza desde cero</li>
+            <li>Confirm the dialog</li>
+            <li>Verify the summary shows "No errors collected yet"</li>
+            <li>Run analysis again</li>
+            <li>Verify it starts from zero</li>
         </ol>
     </div>
 
     <script>
-        // Mostrar información de la URL actual
+        // Show current URL information
         function updateURLInfo() {
             const url = window.location.href;
             document.getElementById('current-url').textContent = url;
 
-            // Simular extracción de flow name
+            // Simulate flow name extraction
             const urlParams = new URLSearchParams(window.location.search);
             const applicationId = urlParams.get('applicationId');
             const flowName = applicationId || 'NEW QnB';
             document.getElementById('flow-name').textContent = flowName;
 
-            // Simular extracción de page name
+            // Simulate page name extraction
             let pageName = 'unknown';
             if (window.location.hash && window.location.hash.includes('#/')) {
                 const hashPart = window.location.hash.split('#/')[1];
@@ -255,7 +255,7 @@
 
         updateURLInfo();
 
-        // Actualizar cuando cambie el hash
+        // Update when hash changes
         window.addEventListener('hashchange', updateURLInfo);
     </script>
 </body>

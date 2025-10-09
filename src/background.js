@@ -1,6 +1,6 @@
 // ===== BACKGROUND SERVICE WORKER =====
-// Mantiene el estado del flujo activo y detecta cambios de página
-// Funciona independientemente del popup (que se cierra al perder foco)
+// Maintains the active flow state and detects page changes
+// Works independently of the popup (which closes when losing focus)
 
 console.log('Background service worker loaded');
 

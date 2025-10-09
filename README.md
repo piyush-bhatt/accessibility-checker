@@ -89,11 +89,11 @@ Ideal for auditing complete user journeys (e.g., checkout process, registration,
 
 #### Step 1: Start a Flow
 
-1. Click **"🎬 Iniciar Flujo"** (Start Flow)
+1. Click **"🎬 Start Flow"**
 2. Enter a descriptive name (e.g., "Checkout Flow", "Registration Process")
 3. The UI will change showing:
-   - **"➕ Analizar Página"** button (to add pages manually)
-   - **"✅ Finalizar Flujo"** button (Finish Flow)
+   - **"➕ Analyze Page"** button (to add pages manually)
+   - **"✅ Finish Flow"** button
    - Active flow status
 
 #### Step 2: Automatic Navigation
@@ -114,13 +114,13 @@ Ideal for auditing complete user journeys (e.g., checkout process, registration,
 If you want to manually analyze the current page:
 
 1. Open the popup
-2. Click **"➕ Analizar Página"** (Analyze Page)
+2. Click **"➕ Analyze Page"**
 3. The current page will be analyzed and added to the flow
 
 #### Step 4: Finish the Flow
 
 1. When you finish the journey, open the popup
-2. Click **"✅ Finalizar Flujo"** (Finish Flow)
+2. Click **"✅ Finish Flow"**
 3. The flow is saved and UI returns to normal mode
 
 ---
@@ -238,11 +238,11 @@ Checkout Flow;Payment Page;ARIA;input;cvv-input;;;form-input;Missing ARIA label:
 2. Enter "app" as Target Div Class
 3. Enable all Basic Checks
 4. Enable Advanced Checks > Form Labels (for forms)
-5. Click "🎬 Iniciar Flujo" → Name: "Checkout Flow"
+5. Click "🎬 Start Flow" → Name: "Checkout Flow"
 6. Close the popup
 7. Navigate: Home → Product → Cart → Checkout → Payment → Confirmation
 8. Each page is automatically analyzed (you'll see notifications)
-9. Open popup and click "✅ Finalizar Flujo"
+9. Open popup and click "✅ Finish Flow"
 10. Click "Download Excel" to get complete report
 ```
 
