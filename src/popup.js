@@ -188,7 +188,33 @@ document.addEventListener('DOMContentLoaded', function () {
       // Small delay to ensure scripts are loaded
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      await chrome.tabs.sendMessage(
+      // Clear previous analysis status
+      chrome.storage.local.set({ analysisStatus: 'idle', analysisProgress: 0 });
+
+      // Start monitoring analysis progress
+      const progressInterval = setInterval(() => {
+        chrome.storage.local.get(
+          ['analysisProgress', 'analysisStatus'],
+          (data) => {
+            if (data.analysisProgress) {
+              showStatus(
+                `Running analysis... ${data.analysisProgress}%`,
+                'info'
+              );
+            }
+
+            if (
+              data.analysisStatus === 'completed' ||
+              data.analysisStatus === 'failed'
+            ) {
+              clearInterval(progressInterval);
+            }
+          }
+        );
+      }, 500);
+
+      // Send message to start analysis
+      chrome.tabs.sendMessage(
         tab.id,
         {
           action: 'runAudit',
@@ -196,10 +222,24 @@ document.addEventListener('DOMContentLoaded', function () {
           options: options,
         },
         function (response) {
+          clearInterval(progressInterval);
           runAnalysisBtn.disabled = false;
 
           if (chrome.runtime.lastError) {
-            showStatus('Error: Please refresh the page and try again', 'error');
+            // Check if analysis completed anyway via storage
+            chrome.storage.local.get(
+              ['analysisStatus', 'auditReport'],
+              (data) => {
+                if (data.analysisStatus === 'completed' && data.auditReport) {
+                  showStatus('Analysis complete! Check the report.', 'success');
+                } else {
+                  showStatus(
+                    'Analysis may still be running. Please wait...',
+                    'info'
+                  );
+                }
+              }
+            );
             return;
           }
 
@@ -301,7 +341,29 @@ document.addEventListener('DOMContentLoaded', function () {
       // Small delay to ensure scripts are loaded
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      await chrome.tabs.sendMessage(
+      // Clear previous analysis status
+      chrome.storage.local.set({ analysisStatus: 'idle', analysisProgress: 0 });
+
+      // Start monitoring analysis progress
+      const progressInterval = setInterval(() => {
+        chrome.storage.local.get(
+          ['analysisProgress', 'analysisStatus'],
+          (data) => {
+            if (data.analysisProgress) {
+              showStatus(`Analyzing page... ${data.analysisProgress}%`, 'info');
+            }
+
+            if (
+              data.analysisStatus === 'completed' ||
+              data.analysisStatus === 'failed'
+            ) {
+              clearInterval(progressInterval);
+            }
+          }
+        );
+      }, 500);
+
+      chrome.tabs.sendMessage(
         tab.id,
         {
           action: 'runAudit',
@@ -310,10 +372,24 @@ document.addEventListener('DOMContentLoaded', function () {
           flowName: currentFlowName,
         },
         function (response) {
+          clearInterval(progressInterval);
           addPageToFlowBtn.disabled = false;
 
           if (chrome.runtime.lastError) {
-            showStatus('Error: Please refresh the page and try again', 'error');
+            // Check if analysis completed anyway via storage
+            chrome.storage.local.get(
+              ['analysisStatus', 'auditReport'],
+              (data) => {
+                if (data.analysisStatus === 'completed' && data.auditReport) {
+                  showStatus('Page analyzed! Check the report.', 'success');
+                } else {
+                  showStatus(
+                    'Analysis may still be running. Please wait...',
+                    'info'
+                  );
+                }
+              }
+            );
             return;
           }
 

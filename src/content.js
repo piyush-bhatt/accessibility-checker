@@ -4,14 +4,24 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
     // Clear previous highlights
     clearHighlights();
 
+    // Set analysis status to 'in-progress' immediately
+    chrome.storage.local.set({ analysisStatus: 'in-progress' });
+
     // Run the audit asynchronously to capture screenshots
-    runAccessibilityAudit(
-      request.divClass,
-      request.options,
-      request.flowName
-    ).then((result) => {
-      sendResponse(result);
-    });
+    runAccessibilityAudit(request.divClass, request.options, request.flowName)
+      .then((result) => {
+        // Mark analysis as complete
+        chrome.storage.local.set({ analysisStatus: 'completed' });
+        sendResponse(result);
+      })
+      .catch((error) => {
+        // Mark analysis as failed
+        chrome.storage.local.set({
+          analysisStatus: 'failed',
+          analysisError: error.message,
+        });
+        sendResponse({ success: false, error: error.message });
+      });
 
     return true; // Keep message channel open for async response
   } else if (request.action === 'getReport') {
@@ -56,21 +66,30 @@ async function captureElementScreenshot(element, container = null) {
     // Get element dimensions
     const elementRect = element.getBoundingClientRect();
 
-    // Skip if element is not visible or too small
-    if (
-      elementRect.width === 0 ||
-      elementRect.height === 0 ||
-      elementRect.width < 5 ||
-      elementRect.height < 5
-    ) {
-      console.warn('Element too small or not visible:', elementRect);
+    // Check if element is visible at all
+    const isVisible = elementRect.width > 0 || elementRect.height > 0;
+    const isTooSmall = elementRect.width < 5 && elementRect.height < 5;
+
+    if (!isVisible) {
+      console.warn('Element not visible:', element.tagName);
       return null;
     }
 
-    console.log('Capturing screenshot centered on element:', {
-      element: element.tagName,
-      rect: elementRect,
-    });
+    // For very small elements (like empty <a> or <p>), we'll still capture
+    // but expand the capture area to show context
+    const captureSmallElement = isTooSmall;
+
+    if (captureSmallElement) {
+      console.log('Capturing small/empty element with expanded context:', {
+        element: element.tagName,
+        rect: elementRect,
+      });
+    } else {
+      console.log('Capturing screenshot centered on element:', {
+        element: element.tagName,
+        rect: elementRect,
+      });
+    }
 
     // Save current scroll position
     const originalScrollX = window.scrollX;
@@ -163,10 +182,31 @@ async function addHighlightToScreenshot(
       const dpr = window.devicePixelRatio || 1;
 
       // Calculate highlight position (account for device pixel ratio)
-      const highlightX = elementX * dpr;
-      const highlightY = elementY * dpr;
-      const highlightWidth = elementWidth * dpr;
-      const highlightHeight = elementHeight * dpr;
+      let highlightX = elementX * dpr;
+      let highlightY = elementY * dpr;
+      let highlightWidth = elementWidth * dpr;
+      let highlightHeight = elementHeight * dpr;
+
+      // For very small elements, ensure minimum visible size
+      const minVisibleSize = 20 * dpr;
+      const isSmallElement =
+        highlightWidth < minVisibleSize || highlightHeight < minVisibleSize;
+
+      if (isSmallElement) {
+        console.log('Adjusting highlight for small element');
+        // Expand the highlight box to be more visible
+        const expandAmount = minVisibleSize / 2;
+        highlightX = Math.max(0, highlightX - expandAmount / 2);
+        highlightY = Math.max(0, highlightY - expandAmount / 2);
+        highlightWidth = Math.max(
+          minVisibleSize,
+          highlightWidth + expandAmount
+        );
+        highlightHeight = Math.max(
+          minVisibleSize,
+          highlightHeight + expandAmount
+        );
+      }
 
       // Draw red highlight border
       ctx.strokeStyle = '#e74c3c';
@@ -174,8 +214,32 @@ async function addHighlightToScreenshot(
       ctx.setLineDash([]);
       ctx.strokeRect(highlightX, highlightY, highlightWidth, highlightHeight);
 
+      // For small elements, add a crosshair to mark exact position
+      if (isSmallElement) {
+        ctx.strokeStyle = '#e74c3c';
+        ctx.lineWidth = 2 * dpr;
+        // Draw crosshair
+        const centerX = highlightX + highlightWidth / 2;
+        const centerY = highlightY + highlightHeight / 2;
+        const crossSize = 10 * dpr;
+
+        // Horizontal line
+        ctx.beginPath();
+        ctx.moveTo(centerX - crossSize, centerY);
+        ctx.lineTo(centerX + crossSize, centerY);
+        ctx.stroke();
+
+        // Vertical line
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY - crossSize);
+        ctx.lineTo(centerX, centerY + crossSize);
+        ctx.stroke();
+      }
+
       // Add label
-      const tagInfo = `<${tagName.toLowerCase()}>`;
+      const tagInfo = isSmallElement
+        ? `<${tagName.toLowerCase()}> (empty/small)`
+        : `<${tagName.toLowerCase()}>`;
       const labelPadding = 8 * dpr;
       const labelHeight = 24 * dpr;
       ctx.font = `bold ${14 * dpr}px Arial`;
@@ -199,7 +263,14 @@ async function addHighlightToScreenshot(
       );
 
       console.log('Screenshot captured with highlight');
-      resolve(canvas.toDataURL('image/png'));
+
+      // Get compression settings (set during analysis)
+      const quality = window._screenshotCompressionQuality || 0.6;
+      const maxWidth = window._screenshotMaxWidth || 800;
+
+      // Compress image to reduce size
+      const compressedDataUrl = compressImage(canvas, quality, maxWidth);
+      resolve(compressedDataUrl);
     };
 
     img.onerror = () => {
@@ -209,6 +280,54 @@ async function addHighlightToScreenshot(
 
     img.src = screenshotDataUrl;
   });
+}
+
+/**
+ * Compress and resize image to reduce storage size
+ * @param {HTMLCanvasElement} canvas - Canvas with the image
+ * @param {number} quality - JPEG quality (0.0 to 1.0)
+ * @param {number} maxWidth - Maximum width in pixels (default: 800)
+ * @returns {string} Compressed data URL
+ */
+function compressImage(canvas, quality = 0.6, maxWidth = 800) {
+  try {
+    // Calculate new dimensions maintaining aspect ratio
+    const originalWidth = canvas.width;
+    const originalHeight = canvas.height;
+
+    let newWidth = originalWidth;
+    let newHeight = originalHeight;
+
+    if (originalWidth > maxWidth) {
+      newWidth = maxWidth;
+      newHeight = Math.round((originalHeight * maxWidth) / originalWidth);
+    }
+
+    // If already small enough, just compress
+    if (newWidth === originalWidth && newHeight === originalHeight) {
+      return canvas.toDataURL('image/jpeg', quality);
+    }
+
+    // Create new canvas with smaller dimensions
+    const smallCanvas = document.createElement('canvas');
+    smallCanvas.width = newWidth;
+    smallCanvas.height = newHeight;
+    const ctx = smallCanvas.getContext('2d');
+
+    // Use better image smoothing
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Draw resized image
+    ctx.drawImage(canvas, 0, 0, newWidth, newHeight);
+
+    // Return as compressed JPEG
+    return smallCanvas.toDataURL('image/jpeg', quality);
+  } catch (error) {
+    console.error('Error compressing image:', error);
+    // Fallback to original with JPEG compression
+    return canvas.toDataURL('image/jpeg', quality);
+  }
 }
 
 /**
@@ -527,8 +646,22 @@ async function createSimplifiedScreenshot(
   // Calculate element position relative to container
   const relativeX = (elementRect.left - containerRect.left) * scale;
   const relativeY = (elementRect.top - containerRect.top) * scale;
-  const elementWidth = elementRect.width * scale;
-  const elementHeight = elementRect.height * scale;
+  let elementWidth = elementRect.width * scale;
+  let elementHeight = elementRect.height * scale;
+
+  // For very small elements, ensure minimum visible size
+  const minSize = 20;
+  const isSmallElement = elementWidth < minSize || elementHeight < minSize;
+  let adjustedX = relativeX;
+  let adjustedY = relativeY;
+
+  if (isSmallElement) {
+    const expandAmount = minSize / 2;
+    adjustedX = Math.max(0, relativeX - expandAmount / 2);
+    adjustedY = Math.max(0, relativeY - expandAmount / 2);
+    elementWidth = Math.max(minSize, elementWidth + expandAmount);
+    elementHeight = Math.max(minSize, elementHeight + expandAmount);
+  }
 
   // Draw element background
   const elementStyles = window.getComputedStyle(element);
@@ -536,7 +669,7 @@ async function createSimplifiedScreenshot(
 
   if (elementBg && elementBg !== 'rgba(0, 0, 0, 0)') {
     ctx.fillStyle = elementBg;
-    ctx.fillRect(relativeX, relativeY, elementWidth, elementHeight);
+    ctx.fillRect(adjustedX, adjustedY, elementWidth, elementHeight);
   }
 
   // Draw element text if present
@@ -554,7 +687,7 @@ async function createSimplifiedScreenshot(
     // Wrap text
     const words = text.trim().substring(0, 100).split(' ');
     let line = '';
-    let y = relativeY + 5;
+    let y = adjustedY + 5;
     const lineHeight = fontSize * 1.2;
 
     for (let word of words) {
@@ -562,16 +695,16 @@ async function createSimplifiedScreenshot(
       const metrics = ctx.measureText(testLine);
 
       if (metrics.width > elementWidth - 10 && line !== '') {
-        ctx.fillText(line, relativeX + 5, y);
+        ctx.fillText(line, adjustedX + 5, y);
         line = word + ' ';
         y += lineHeight;
-        if (y > relativeY + elementHeight - lineHeight) break;
+        if (y > adjustedY + elementHeight - lineHeight) break;
       } else {
         line = testLine;
       }
     }
-    if (line && y < relativeY + elementHeight) {
-      ctx.fillText(line, relativeX + 5, y);
+    if (line && y < adjustedY + elementHeight) {
+      ctx.fillText(line, adjustedX + 5, y);
     }
   }
 
@@ -580,17 +713,40 @@ async function createSimplifiedScreenshot(
   ctx.lineWidth = 4;
   ctx.setLineDash([]);
 
-  ctx.strokeRect(relativeX, relativeY, elementWidth, elementHeight);
+  ctx.strokeRect(adjustedX, adjustedY, elementWidth, elementHeight);
+
+  // For small elements, add a crosshair to mark exact position
+  if (isSmallElement) {
+    ctx.strokeStyle = '#e74c3c';
+    ctx.lineWidth = 2;
+    const centerX = adjustedX + elementWidth / 2;
+    const centerY = adjustedY + elementHeight / 2;
+    const crossSize = 10;
+
+    // Horizontal line
+    ctx.beginPath();
+    ctx.moveTo(centerX - crossSize, centerY);
+    ctx.lineTo(centerX + crossSize, centerY);
+    ctx.stroke();
+
+    // Vertical line
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - crossSize);
+    ctx.lineTo(centerX, centerY + crossSize);
+    ctx.stroke();
+  }
 
   // Add label at top
-  const tagInfo = `<${element.tagName.toLowerCase()}>`;
+  const tagInfo = isSmallElement
+    ? `<${element.tagName.toLowerCase()}> (empty/small)`
+    : `<${element.tagName.toLowerCase()}>`;
   const labelPadding = 4;
   const labelHeight = 20;
 
   ctx.fillStyle = '#e74c3c';
   ctx.fillRect(
-    relativeX,
-    Math.max(0, relativeY - labelHeight),
+    adjustedX,
+    Math.max(0, adjustedY - labelHeight),
     ctx.measureText(tagInfo).width + labelPadding * 2,
     labelHeight
   );
@@ -601,8 +757,8 @@ async function createSimplifiedScreenshot(
   ctx.textBaseline = 'top';
   ctx.fillText(
     tagInfo,
-    relativeX + labelPadding,
-    Math.max(0, relativeY - labelHeight) + 3
+    adjustedX + labelPadding,
+    Math.max(0, adjustedY - labelHeight) + 3
   );
 
   return canvas.toDataURL('image/png');
@@ -763,16 +919,64 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
       errorCount += checkLinkText(allElements, errors);
     }
 
-    // Capture screenshots for all errors (async)
+    // Capture screenshots for all errors (async, in batches to avoid timeout)
     console.log(`Capturing screenshots for ${errors.length} errors...`);
-    await Promise.all(
-      errors.map(async (error) => {
-        error.screenshot = await captureElementScreenshot(
-          error.element,
-          container
-        );
-      })
-    );
+    const BATCH_SIZE = 5; // Process 5 screenshots at a time to avoid timeout
+    const MAX_SCREENSHOTS = 100; // Increased limit with compression - we can handle more now
+
+    // Adaptive compression: lower quality for more screenshots
+    let compressionQuality = 0.6; // Default quality
+    let maxImageWidth = 800; // Default width
+
+    if (errors.length > 75) {
+      compressionQuality = 0.4; // Lower quality for many errors
+      maxImageWidth = 600; // Smaller images
+      console.log('Using high compression (many errors detected)');
+    } else if (errors.length > 50) {
+      compressionQuality = 0.5; // Medium quality
+      maxImageWidth = 700;
+      console.log('Using medium compression');
+    } else {
+      console.log('Using standard compression');
+    }
+
+    // Store compression settings globally for use in screenshot function
+    window._screenshotCompressionQuality = compressionQuality;
+    window._screenshotMaxWidth = maxImageWidth;
+
+    // Only capture screenshots for first MAX_SCREENSHOTS errors
+    const errorsToCapture = errors.slice(0, MAX_SCREENSHOTS);
+
+    for (let i = 0; i < errorsToCapture.length; i += BATCH_SIZE) {
+      const batch = errorsToCapture.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (error) => {
+          try {
+            error.screenshot = await captureElementScreenshot(
+              error.element,
+              container
+            );
+          } catch (screenshotError) {
+            console.warn('Failed to capture screenshot:', screenshotError);
+            error.screenshot = null;
+          }
+        })
+      );
+
+      // Update progress in storage
+      const progress = Math.min(
+        100,
+        Math.round(((i + BATCH_SIZE) / errorsToCapture.length) * 100)
+      );
+      chrome.storage.local.set({ analysisProgress: progress });
+      console.log(`Screenshot progress: ${progress}%`);
+    }
+
+    if (errors.length > MAX_SCREENSHOTS) {
+      console.log(
+        `Note: Captured screenshots for first ${MAX_SCREENSHOTS} of ${errors.length} errors (with compression)`
+      );
+    }
     console.log('Screenshots captured');
 
     // Highlight all errors
@@ -780,14 +984,26 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
 
     // Store errors in report (with flowName if provided) - AWAIT to ensure it completes
     console.log('Saving report to storage...');
-    await storeErrorsInReport(errors, flowName);
-    console.log('Report saved successfully');
+    try {
+      await storeErrorsInReport(errors, flowName);
+      console.log('Report saved successfully');
+    } catch (saveError) {
+      console.error('Error saving report:', saveError);
+      // Even if saving fails, return success with error count
+      // so the user knows the analysis completed
+      return {
+        success: true,
+        errorCount: errorCount,
+        warning: 'Analysis completed but report may not have saved completely',
+      };
+    }
 
     return {
       success: true,
       errorCount: errorCount,
     };
   } catch (error) {
+    console.error('Error running audit:', error);
     return {
       success: false,
       error: 'Error running audit: ' + error.message,

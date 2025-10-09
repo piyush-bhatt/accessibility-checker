@@ -41,6 +41,20 @@ function getPageName() {
  * @returns {Object} Element details including visual context
  */
 function getElementDetails(element) {
+  // Safety check
+  if (!element) {
+    return {
+      tagName: 'unknown',
+      id: '',
+      trackId: '',
+      dataTestId: '',
+      className: '',
+      innerText: '',
+      position: 'N/A',
+      size: 'N/A',
+    };
+  }
+
   // Get element text (trimmed, max 100 chars)
   let innerText = '';
   try {
@@ -63,12 +77,34 @@ function getElementDetails(element) {
     size = 'N/A';
   }
 
+  // Safely get tagName
+  let tagName = 'unknown';
+  try {
+    tagName = element.tagName ? element.tagName.toLowerCase() : 'unknown';
+  } catch (e) {
+    tagName = 'unknown';
+  }
+
+  // Safely get attributes
+  let id = '';
+  let trackId = '';
+  let dataTestId = '';
+  let className = '';
+  try {
+    id = element.id || '';
+    trackId = element.getAttribute('trackid') || '';
+    dataTestId = element.getAttribute('data-testid') || '';
+    className = element.className || '';
+  } catch (e) {
+    // Attributes may fail on detached elements
+  }
+
   return {
-    tagName: element.tagName.toLowerCase(),
-    id: element.id || '',
-    trackId: element.getAttribute('trackid') || '',
-    dataTestId: element.getAttribute('data-testid') || '',
-    className: element.className || '',
+    tagName: tagName,
+    id: id,
+    trackId: trackId,
+    dataTestId: dataTestId,
+    className: className,
     innerText: innerText,
     position: position,
     size: size,
@@ -104,52 +140,122 @@ async function storeErrorsInReport(errors, customFlowName = null) {
   const flowName = customFlowName || getFlowName();
   const pageName = getPageName();
 
+  console.log('[storeErrorsInReport] Starting to store errors:', {
+    flowName,
+    pageName,
+    errorCount: errors.length,
+  });
+
   // Get existing report from storage
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     chrome.storage.local.get(['auditReport'], function (data) {
-      const report = data.auditReport || {};
+      try {
+        const report = data.auditReport || {};
 
-      // Initialize flow if not exists
-      if (!report[flowName]) {
-        report[flowName] = {};
-      }
+        // Initialize flow if not exists
+        if (!report[flowName]) {
+          report[flowName] = {};
+        }
 
-      // Initialize page object if not exists, or clear if re-running on same page
-      // Store page timestamp and errors array
-      const pageTimestamp = new Date().toISOString();
-      report[flowName][pageName] = {
-        pageTimestamp: pageTimestamp,
-        errors: [],
-      };
+        // Initialize page object if not exists, or clear if re-running on same page
+        // Store page timestamp and errors array
+        const pageTimestamp = new Date().toISOString();
 
-      // Add each error to the report
-      errors.forEach((error) => {
-        const details = getElementDetails(error.element);
-        const errorCode = getErrorCode(error.message);
-        const screenshot = error.screenshot || null;
+        // Create array to hold all errors for this page
+        const pageErrors = [];
 
-        report[flowName][pageName].errors.push({
-          errorCode: errorCode,
-          tagName: details.tagName,
-          id: details.id,
-          trackId: details.trackId,
-          dataTestId: details.dataTestId,
-          className: details.className,
-          message: error.message,
-          timestamp: new Date().toISOString(),
-          screenshot: screenshot, // Base64 image data or null
-          // Visual context for easier identification
-          innerText: details.innerText,
-          position: details.position,
-          size: details.size,
+        // Add each error to the array
+        errors.forEach((error, index) => {
+          try {
+            const details = getElementDetails(error.element);
+            const errorCode = getErrorCode(error.message);
+            const screenshot = error.screenshot || null;
+
+            pageErrors.push({
+              errorCode: errorCode,
+              tagName: details.tagName,
+              id: details.id,
+              trackId: details.trackId,
+              dataTestId: details.dataTestId,
+              className: details.className,
+              message: error.message,
+              timestamp: new Date().toISOString(),
+              screenshot: screenshot, // Base64 image data or null
+              // Visual context for easier identification
+              innerText: details.innerText,
+              position: details.position,
+              size: details.size,
+            });
+          } catch (err) {
+            console.error(
+              `[storeErrorsInReport] Error processing error ${index}:`,
+              err
+            );
+            // Continue with other errors even if one fails
+          }
         });
-      });
 
-      // Save updated report
-      chrome.storage.local.set({ auditReport: report }, function () {
-        console.log('Report saved successfully. Total errors:', errors.length);
-        resolve({ success: true, errorCount: errors.length });
-      });
+        console.log(
+          '[storeErrorsInReport] Processed errors:',
+          pageErrors.length
+        );
+
+        // Only update the report after all errors are processed
+        report[flowName][pageName] = {
+          pageTimestamp: pageTimestamp,
+          errors: pageErrors,
+        };
+
+        // Check size of data before saving
+        const reportStr = JSON.stringify(report);
+        const sizeInBytes = new Blob([reportStr]).size;
+        const sizeInMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
+        console.log(`[storeErrorsInReport] Report size: ${sizeInMB} MB`);
+
+        // Chrome storage.local has a limit of ~5MB
+        // Progressive strategy to fit data
+        if (sizeInBytes > 4.8 * 1024 * 1024) {
+          console.warn(
+            '[storeErrorsInReport] Report too large (>4.8MB), removing all screenshots...'
+          );
+          // Remove all screenshots
+          pageErrors.forEach((error) => {
+            error.screenshot = null;
+          });
+          report[flowName][pageName].errors = pageErrors;
+        } else if (sizeInBytes > 4.5 * 1024 * 1024) {
+          console.warn(
+            '[storeErrorsInReport] Report large (>4.5MB), removing 50% of screenshots...'
+          );
+          // Remove every other screenshot
+          pageErrors.forEach((error, index) => {
+            if (index % 2 === 1) {
+              error.screenshot = null;
+            }
+          });
+          report[flowName][pageName].errors = pageErrors;
+        }
+
+        // Save updated report
+        chrome.storage.local.set({ auditReport: report }, function () {
+          if (chrome.runtime.lastError) {
+            console.error(
+              '[storeErrorsInReport] Error saving to storage:',
+              chrome.runtime.lastError
+            );
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            console.log(
+              '[storeErrorsInReport] Report saved successfully. Total errors:',
+              pageErrors.length
+            );
+            resolve({ success: true, errorCount: pageErrors.length });
+          }
+        });
+      } catch (err) {
+        console.error('[storeErrorsInReport] Error in processing:', err);
+        reject(err);
+      }
     });
   });
 }
