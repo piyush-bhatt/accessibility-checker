@@ -4,13 +4,16 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
     // Clear previous highlights
     clearHighlights();
 
-    // Run the audit
-    const result = runAccessibilityAudit(
+    // Run the audit asynchronously to capture screenshots
+    runAccessibilityAudit(
       request.divClass,
       request.options,
       request.flowName
-    );
-    sendResponse(result);
+    ).then((result) => {
+      sendResponse(result);
+    });
+
+    return true; // Keep message channel open for async response
   } else if (request.action === 'getReport') {
     // Return stored report data (handled by report.js)
     getReport(function (report) {
@@ -23,11 +26,590 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
       sendResponse(response);
     });
     return true;
+  } else if (request.action === 'captureFullPage') {
+    // Capture full page screenshot
+    sendResponse({
+      scrollHeight: document.documentElement.scrollHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientHeight: document.documentElement.clientHeight,
+      clientWidth: document.documentElement.clientWidth,
+    });
+    return true;
   }
   return true;
 });
 
+/**
+ * Capture screenshot centered on element with error
+ * Scrolls to element, captures visible viewport, and adds highlight
+ * @param {HTMLElement} element - Element with error
+ * @param {HTMLElement} container - Container being audited
+ * @returns {Promise<string|null>} Base64 data URL or null if capture fails
+ */
+async function captureElementScreenshot(element, container = null) {
+  try {
+    // Find container if not provided
+    if (!container) {
+      container = element.closest('.a11y-audit-container') || document.body;
+    }
+
+    // Get element dimensions
+    const elementRect = element.getBoundingClientRect();
+
+    // Skip if element is not visible or too small
+    if (
+      elementRect.width === 0 ||
+      elementRect.height === 0 ||
+      elementRect.width < 5 ||
+      elementRect.height < 5
+    ) {
+      console.warn('Element too small or not visible:', elementRect);
+      return null;
+    }
+
+    console.log('Capturing screenshot centered on element:', {
+      element: element.tagName,
+      rect: elementRect,
+    });
+
+    // Save current scroll position
+    const originalScrollX = window.scrollX;
+    const originalScrollY = window.scrollY;
+
+    try {
+      // Scroll element into view (centered if possible)
+      element.scrollIntoView({
+        behavior: 'instant',
+        block: 'center',
+        inline: 'center',
+      });
+
+      // Wait for scroll to complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Get element position after scroll
+      const elementRectAfterScroll = element.getBoundingClientRect();
+
+      // Capture screenshot via background script
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { action: 'captureVisibleTab' },
+          (response) => resolve(response)
+        );
+      });
+
+      // Restore original scroll position
+      window.scrollTo(originalScrollX, originalScrollY);
+
+      if (!response || !response.dataUrl) {
+        console.error('Failed to capture screenshot');
+        return await createSimplifiedScreenshot(
+          element,
+          container,
+          elementRect,
+          container.getBoundingClientRect()
+        );
+      }
+
+      // Add highlight to screenshot
+      return await addHighlightToScreenshot(
+        response.dataUrl,
+        elementRectAfterScroll.left,
+        elementRectAfterScroll.top,
+        elementRectAfterScroll.width,
+        elementRectAfterScroll.height,
+        element.tagName
+      );
+    } catch (error) {
+      console.error('Error during screenshot capture:', error);
+      // Restore scroll position
+      window.scrollTo(originalScrollX, originalScrollY);
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error capturing element screenshot:', error);
+    return await createSimplifiedScreenshot(
+      element,
+      container,
+      element.getBoundingClientRect(),
+      container.getBoundingClientRect()
+    );
+  }
+}
+
+/**
+ * Add red highlight border to screenshot
+ */
+async function addHighlightToScreenshot(
+  screenshotDataUrl,
+  elementX,
+  elementY,
+  elementWidth,
+  elementHeight,
+  tagName
+) {
+  return new Promise((resolve) => {
+    const img = new Image();
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+
+      // Draw screenshot
+      ctx.drawImage(img, 0, 0);
+
+      const dpr = window.devicePixelRatio || 1;
+
+      // Calculate highlight position (account for device pixel ratio)
+      const highlightX = elementX * dpr;
+      const highlightY = elementY * dpr;
+      const highlightWidth = elementWidth * dpr;
+      const highlightHeight = elementHeight * dpr;
+
+      // Draw red highlight border
+      ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = 4 * dpr;
+      ctx.setLineDash([]);
+      ctx.strokeRect(highlightX, highlightY, highlightWidth, highlightHeight);
+
+      // Add label
+      const tagInfo = `<${tagName.toLowerCase()}>`;
+      const labelPadding = 8 * dpr;
+      const labelHeight = 24 * dpr;
+      ctx.font = `bold ${14 * dpr}px Arial`;
+      const labelWidth = ctx.measureText(tagInfo).width + labelPadding * 2;
+
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(
+        highlightX,
+        Math.max(0, highlightY - labelHeight),
+        labelWidth,
+        labelHeight
+      );
+
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(
+        tagInfo,
+        highlightX + labelPadding,
+        Math.max(0, highlightY - labelHeight) + 5 * dpr
+      );
+
+      console.log('Screenshot captured with highlight');
+      resolve(canvas.toDataURL('image/png'));
+    };
+
+    img.onerror = () => {
+      console.error('Failed to load screenshot image');
+      resolve(null);
+    };
+
+    img.src = screenshotDataUrl;
+  });
+}
+
+/**
+ * Create a simplified visual representation of container with element highlighted
+ */
+async function stitchScreenshotsAndHighlight(
+  screenshots,
+  elementX,
+  elementY,
+  elementWidth,
+  elementHeight,
+  tagName,
+  pageWidth,
+  pageHeight,
+  viewportHeight,
+  dpr
+) {
+  return new Promise((resolve) => {
+    // Create canvas for full page
+    const canvas = document.createElement('canvas');
+    canvas.width = pageWidth * dpr;
+    canvas.height = pageHeight * dpr;
+    const ctx = canvas.getContext('2d');
+
+    // Fill with white background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let imagesLoaded = 0;
+    const totalImages = screenshots.length;
+
+    // Load and draw each screenshot
+    screenshots.forEach((screenshot) => {
+      const img = new Image();
+
+      img.onload = () => {
+        // Draw screenshot at correct position
+        ctx.drawImage(img, 0, screenshot.scrollY * dpr, img.width, img.height);
+
+        imagesLoaded++;
+
+        // When all images are loaded, add highlight
+        if (imagesLoaded === totalImages) {
+          // Draw red highlight border
+          const highlightX = elementX * dpr;
+          const highlightY = elementY * dpr;
+          const highlightWidth = elementWidth * dpr;
+          const highlightHeight = elementHeight * dpr;
+
+          ctx.strokeStyle = '#e74c3c';
+          ctx.lineWidth = 4 * dpr;
+          ctx.setLineDash([]);
+          ctx.strokeRect(
+            highlightX,
+            highlightY,
+            highlightWidth,
+            highlightHeight
+          );
+
+          // Add label
+          const tagInfo = `<${tagName.toLowerCase()}>`;
+          const labelPadding = 8 * dpr;
+          const labelHeight = 24 * dpr;
+          ctx.font = `bold ${14 * dpr}px Arial`;
+          const labelWidth = ctx.measureText(tagInfo).width + labelPadding * 2;
+
+          ctx.fillStyle = '#e74c3c';
+          ctx.fillRect(
+            highlightX,
+            Math.max(0, highlightY - labelHeight),
+            labelWidth,
+            labelHeight
+          );
+
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(
+            tagInfo,
+            highlightX + labelPadding,
+            Math.max(0, highlightY - labelHeight) + 5 * dpr
+          );
+
+          console.log('Full page screenshot created with highlight');
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+
+      img.onerror = () => {
+        console.error('Failed to load screenshot image');
+        imagesLoaded++;
+        if (imagesLoaded === totalImages) {
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+
+      img.src = screenshot.dataUrl;
+    });
+  });
+}
+
+/**
+ * Draw red highlight border on a container screenshot
+ * @param {string} screenshotDataUrl - Base screenshot image of full container
+ * @param {number} relativeX - Element X position relative to container
+ * @param {number} relativeY - Element Y position relative to container
+ * @param {number} elementWidth - Element width
+ * @param {number} elementHeight - Element height
+ * @param {string} tagName - Element tag name
+ * @returns {Promise<string>} Screenshot with red border
+ */
+async function drawHighlightOnContainer(
+  screenshotDataUrl,
+  relativeX,
+  relativeY,
+  elementWidth,
+  elementHeight,
+  tagName
+) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      // Use full image size (the complete container)
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      // Draw the full container screenshot
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+
+      // Element position is already relative to container, no DPR needed
+      // since html2canvas renders at scale: 1
+      const highlightX = relativeX;
+      const highlightY = relativeY;
+      const highlightWidth = elementWidth;
+      const highlightHeight = elementHeight;
+
+      // Draw RED HIGHLIGHT BORDER
+      const borderWidth = 4;
+
+      ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = borderWidth;
+      ctx.setLineDash([]);
+
+      ctx.strokeRect(highlightX, highlightY, highlightWidth, highlightHeight);
+
+      // Add tag label
+      const tagInfo = `<${tagName.toLowerCase()}>`;
+      const labelPadding = 8;
+      const labelHeight = 24;
+      ctx.font = 'bold 14px Arial';
+      const labelWidth = ctx.measureText(tagInfo).width + labelPadding * 2;
+
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(
+        highlightX,
+        Math.max(0, highlightY - labelHeight),
+        labelWidth,
+        labelHeight
+      );
+
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(
+        tagInfo,
+        highlightX + labelPadding,
+        Math.max(0, highlightY - labelHeight) + 5
+      );
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => {
+      console.error('Failed to load container screenshot image');
+      resolve(null);
+    };
+    img.src = screenshotDataUrl;
+  });
+}
+
+/**
+ * Draw red highlight border on a screenshot
+ * @param {string} screenshotDataUrl - Base screenshot image
+ * @param {DOMRect} elementRect - Element bounds
+ * @param {DOMRect} containerRect - Container bounds
+ * @param {string} tagName - Element tag name
+ * @returns {Promise<string>} Screenshot with red border
+ */
+async function drawHighlightOnScreenshot(
+  screenshotDataUrl,
+  elementRect,
+  containerRect,
+  tagName
+) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      // The screenshot is at device pixel ratio scale
+      // We need to use the full image size without additional scaling
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      // Draw the captured screenshot at full size
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+
+      // Calculate scale factor based on device pixel ratio
+      const dpr = window.devicePixelRatio || 1;
+
+      // Element position with device pixel ratio
+      const relativeX = elementRect.left * dpr;
+      const relativeY = elementRect.top * dpr;
+      const elementWidth = elementRect.width * dpr;
+      const elementHeight = elementRect.height * dpr;
+
+      // Draw RED HIGHLIGHT BORDER (no offset - exact position)
+      const borderWidth = 4 * dpr;
+
+      ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = borderWidth;
+      ctx.setLineDash([]);
+
+      ctx.strokeRect(relativeX, relativeY, elementWidth, elementHeight);
+
+      // Add tag label
+      const tagInfo = `<${tagName.toLowerCase()}>`;
+      const labelPadding = 8 * dpr;
+      const labelHeight = 24 * dpr;
+      ctx.font = `bold ${14 * dpr}px Arial`;
+      const labelWidth = ctx.measureText(tagInfo).width + labelPadding * 2;
+
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(
+        relativeX,
+        Math.max(0, relativeY - labelHeight),
+        labelWidth,
+        labelHeight
+      );
+
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(
+        tagInfo,
+        relativeX + labelPadding,
+        Math.max(0, relativeY - labelHeight) + 5 * dpr
+      );
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => {
+      console.error('Failed to load screenshot image');
+      resolve(null);
+    };
+    img.src = screenshotDataUrl;
+  });
+}
+
+/**
+ * Create a simplified canvas-based screenshot (last fallback)
+ * @param {HTMLElement} element - Element to highlight
+ * @param {HTMLElement} container - Container element
+ * @param {DOMRect} elementRect - Element bounding rect
+ * @param {DOMRect} containerRect - Container bounding rect
+ * @returns {Promise<string>} Base64 data URL
+ */
+async function createSimplifiedScreenshot(
+  element,
+  container,
+  elementRect,
+  containerRect
+) {
+  const canvas = document.createElement('canvas');
+  const maxWidth = 800;
+  const maxHeight = 600;
+
+  // Calculate scaled dimensions
+  let width = Math.min(containerRect.width, maxWidth);
+  let height = Math.min(containerRect.height, maxHeight);
+
+  const scale = Math.min(
+    maxWidth / containerRect.width,
+    maxHeight / containerRect.height,
+    1
+  );
+
+  width = containerRect.width * scale;
+  height = containerRect.height * scale;
+
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext('2d');
+
+  // Draw container background
+  const containerStyles = window.getComputedStyle(container);
+  const bgColor = containerStyles.backgroundColor;
+
+  if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)') {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, width, height);
+  } else {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  // Draw a simplified representation of the container
+  ctx.strokeStyle = '#e0e0e0';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, width, height);
+
+  // Calculate element position relative to container
+  const relativeX = (elementRect.left - containerRect.left) * scale;
+  const relativeY = (elementRect.top - containerRect.top) * scale;
+  const elementWidth = elementRect.width * scale;
+  const elementHeight = elementRect.height * scale;
+
+  // Draw element background
+  const elementStyles = window.getComputedStyle(element);
+  const elementBg = elementStyles.backgroundColor;
+
+  if (elementBg && elementBg !== 'rgba(0, 0, 0, 0)') {
+    ctx.fillStyle = elementBg;
+    ctx.fillRect(relativeX, relativeY, elementWidth, elementHeight);
+  }
+
+  // Draw element text if present
+  const text = element.innerText || element.textContent || '';
+  if (text.trim()) {
+    const fontSize = parseFloat(elementStyles.fontSize) * scale || 12;
+    const color = elementStyles.color || '#000000';
+
+    ctx.fillStyle = color;
+    ctx.font = `${Math.max(fontSize, 10)}px ${
+      elementStyles.fontFamily || 'Arial'
+    }`;
+    ctx.textBaseline = 'top';
+
+    // Wrap text
+    const words = text.trim().substring(0, 100).split(' ');
+    let line = '';
+    let y = relativeY + 5;
+    const lineHeight = fontSize * 1.2;
+
+    for (let word of words) {
+      const testLine = line + word + ' ';
+      const metrics = ctx.measureText(testLine);
+
+      if (metrics.width > elementWidth - 10 && line !== '') {
+        ctx.fillText(line, relativeX + 5, y);
+        line = word + ' ';
+        y += lineHeight;
+        if (y > relativeY + elementHeight - lineHeight) break;
+      } else {
+        line = testLine;
+      }
+    }
+    if (line && y < relativeY + elementHeight) {
+      ctx.fillText(line, relativeX + 5, y);
+    }
+  }
+
+  // Draw RED HIGHLIGHT BORDER around element (no offset - exact position)
+  ctx.strokeStyle = '#e74c3c';
+  ctx.lineWidth = 4;
+  ctx.setLineDash([]);
+
+  ctx.strokeRect(relativeX, relativeY, elementWidth, elementHeight);
+
+  // Add label at top
+  const tagInfo = `<${element.tagName.toLowerCase()}>`;
+  const labelPadding = 4;
+  const labelHeight = 20;
+
+  ctx.fillStyle = '#e74c3c';
+  ctx.fillRect(
+    relativeX,
+    Math.max(0, relativeY - labelHeight),
+    ctx.measureText(tagInfo).width + labelPadding * 2,
+    labelHeight
+  );
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(
+    tagInfo,
+    relativeX + labelPadding,
+    Math.max(0, relativeY - labelHeight) + 3
+  );
+
+  return canvas.toDataURL('image/png');
+}
+
 function clearHighlights() {
+  // Remove all existing error highlights
   // Remove all existing error highlights
   const existingHighlights = document.querySelectorAll('.a11y-error-highlight');
   existingHighlights.forEach((el) => el.remove());
@@ -73,7 +655,7 @@ function highlightAuditContainer(container) {
   container.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function runAccessibilityAudit(divClass, options, flowName = null) {
+async function runAccessibilityAudit(divClass, options, flowName = null) {
   try {
     // Find the target container - try both class selector and tag name
     let container = document.querySelector(`.${divClass}`);
@@ -181,11 +763,25 @@ function runAccessibilityAudit(divClass, options, flowName = null) {
       errorCount += checkLinkText(allElements, errors);
     }
 
+    // Capture screenshots for all errors (async)
+    console.log(`Capturing screenshots for ${errors.length} errors...`);
+    await Promise.all(
+      errors.map(async (error) => {
+        error.screenshot = await captureElementScreenshot(
+          error.element,
+          container
+        );
+      })
+    );
+    console.log('Screenshots captured');
+
     // Highlight all errors
     errors.forEach((error) => highlightError(error.element, error.message));
 
-    // Store errors in report (with flowName if provided)
-    storeErrorsInReport(errors, flowName);
+    // Store errors in report (with flowName if provided) - AWAIT to ensure it completes
+    console.log('Saving report to storage...');
+    await storeErrorsInReport(errors, flowName);
+    console.log('Report saved successfully');
 
     return {
       success: true,

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Page - Accessibility Checker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        .card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-success {
+            background: #2ecc71;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .form-group {
+            margin: 15px 0;
+        }
+
+        input[type="text"],
+        input[type="email"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #ecf0f1;
+            text-align: center;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🧪 Test Page for Accessibility Checker</h1>
+
+        <div class="card">
+            <h2>Section with Accessibility Issues</h2>
+            <p>This page contains intentional accessibility errors for testing purposes.</p>
+        </div>
+
+        <!-- Image without alt text -->
+        <div class="card">
+            <h3>Images</h3>
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='100'%3E%3Crect fill='%233498db' width='200' height='100'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='white' font-size='20'%3ENo Alt Text%3C/text%3E%3C/svg%3E"
+                width="200" height="100">
+            <p>Image above is missing alt text (accessibility error)</p>
+        </div>
+
+        <!-- Buttons without labels -->
+        <div class="card">
+            <h3>Buttons</h3>
+            <div class="button-group">
+                <button class="btn-primary">Accede</button>
+                <button class="btn-success"></button> <!-- Empty button -->
+                <button class="btn-danger">❌</button>
+            </div>
+        </div>
+
+        <!-- Form inputs without labels -->
+        <div class="card">
+            <h3>Form (Missing Labels)</h3>
+            <div class="form-group">
+                <input type="text" placeholder="Enter your name">
+            </div>
+            <div class="form-group">
+                <input type="email" placeholder="Enter your email">
+            </div>
+            <button class="btn-primary">Submit</button>
+        </div>
+
+        <!-- Low contrast text -->
+        <div class="card" style="background: #f0f0f0;">
+            <p style="color: #d3d3d3; font-size: 14px;">
+                This text has very low contrast and might be hard to read for users with visual impairments.
+            </p>
+        </div>
+
+        <!-- Links without href -->
+        <div class="card">
+            <h3>Links</h3>
+            <p>
+                <a>Click here</a> - This link has no href attribute
+            </p>
+            <p>
+                <a href="#">Another link</a> - This link only has #
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>© 2025 Accessibility Checker Test Page | Created by Jairo Costa</p>
+        </div>
+    </div>
+</body>
+
+</html>

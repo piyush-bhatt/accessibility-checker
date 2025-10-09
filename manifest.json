@@ -2,9 +2,10 @@
   "manifest_version": 3,
   "name": "Accessibility Checker",
   "author": "Jairo Costa",
-  "version": "1.4.2",
-  "description": "Comprehensive accessibility audit with 16 checks including advanced WCAG 2.1 criteria by Jairo Costa (@soyJairoCosta)",
+  "version": "1.8.1",
+  "description": "Comprehensive accessibility audit with 16 checks including advanced WCAG 2.1 criteria and smart element-centered screenshots by Jairo Costa (@soyJairoCosta)",
   "permissions": ["activeTab", "scripting", "storage", "notifications", "tabs"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js"
   },

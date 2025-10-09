@@ -115,6 +115,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Clear tracking when flow ends
     lastAnalyzedUrls.clear();
     sendResponse({ success: true });
+  } else if (request.action === 'captureVisibleTab') {
+    // Capture screenshot of visible tab (full page)
+    (async () => {
+      try {
+        // Capture the visible tab
+        const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+          format: 'png',
+          quality: 90,
+        });
+
+        sendResponse({ dataUrl: dataUrl });
+      } catch (error) {
+        console.error('Error capturing visible tab:', error);
+        sendResponse({ dataUrl: null });
+      }
+    })();
+    return true; // Keep message channel open
   }
   return true;
 });

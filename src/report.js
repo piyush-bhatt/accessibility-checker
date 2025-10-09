@@ -38,15 +38,40 @@ function getPageName() {
 /**
  * Extract element details (id, trackid, data-testid, className)
  * @param {HTMLElement} element - The element to extract details from
- * @returns {Object} Element details
+ * @returns {Object} Element details including visual context
  */
 function getElementDetails(element) {
+  // Get element text (trimmed, max 100 chars)
+  let innerText = '';
+  try {
+    innerText = element.innerText || element.textContent || '';
+    innerText = innerText.trim().substring(0, 100);
+    if (innerText.length === 100) innerText += '...';
+  } catch (e) {
+    innerText = '';
+  }
+
+  // Get element position and size
+  let position = '';
+  let size = '';
+  try {
+    const rect = element.getBoundingClientRect();
+    position = `x:${Math.round(rect.left)}, y:${Math.round(rect.top)}`;
+    size = `${Math.round(rect.width)}x${Math.round(rect.height)}px`;
+  } catch (e) {
+    position = 'N/A';
+    size = 'N/A';
+  }
+
   return {
     tagName: element.tagName.toLowerCase(),
     id: element.id || '',
     trackId: element.getAttribute('trackid') || '',
     dataTestId: element.getAttribute('data-testid') || '',
     className: element.className || '',
+    innerText: innerText,
+    position: position,
+    size: size,
   };
 }
 
@@ -75,47 +100,56 @@ function getErrorCode(message) {
  * @param {Array} errors - Array of error objects with element and message
  * @param {string} customFlowName - Optional custom flow name (for flow mode)
  */
-function storeErrorsInReport(errors, customFlowName = null) {
+async function storeErrorsInReport(errors, customFlowName = null) {
   const flowName = customFlowName || getFlowName();
   const pageName = getPageName();
 
   // Get existing report from storage
-  chrome.storage.local.get(['auditReport'], function (data) {
-    const report = data.auditReport || {};
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['auditReport'], function (data) {
+      const report = data.auditReport || {};
 
-    // Initialize flow if not exists
-    if (!report[flowName]) {
-      report[flowName] = {};
-    }
+      // Initialize flow if not exists
+      if (!report[flowName]) {
+        report[flowName] = {};
+      }
 
-    // Initialize page object if not exists, or clear if re-running on same page
-    // Store page timestamp and errors array
-    const pageTimestamp = new Date().toISOString();
-    report[flowName][pageName] = {
-      pageTimestamp: pageTimestamp,
-      errors: [],
-    };
+      // Initialize page object if not exists, or clear if re-running on same page
+      // Store page timestamp and errors array
+      const pageTimestamp = new Date().toISOString();
+      report[flowName][pageName] = {
+        pageTimestamp: pageTimestamp,
+        errors: [],
+      };
 
-    // Add each error to the report
-    errors.forEach((error) => {
-      const details = getElementDetails(error.element);
-      const errorCode = getErrorCode(error.message);
+      // Add each error to the report
+      errors.forEach((error) => {
+        const details = getElementDetails(error.element);
+        const errorCode = getErrorCode(error.message);
+        const screenshot = error.screenshot || null;
 
-      report[flowName][pageName].errors.push({
-        errorCode: errorCode,
-        tagName: details.tagName,
-        id: details.id,
-        trackId: details.trackId,
-        dataTestId: details.dataTestId,
-        className: details.className,
-        message: error.message,
-        timestamp: new Date().toISOString(),
+        report[flowName][pageName].errors.push({
+          errorCode: errorCode,
+          tagName: details.tagName,
+          id: details.id,
+          trackId: details.trackId,
+          dataTestId: details.dataTestId,
+          className: details.className,
+          message: error.message,
+          timestamp: new Date().toISOString(),
+          screenshot: screenshot, // Base64 image data or null
+          // Visual context for easier identification
+          innerText: details.innerText,
+          position: details.position,
+          size: details.size,
+        });
       });
-    });
 
-    // Save updated report
-    chrome.storage.local.set({ auditReport: report }, function () {
-      console.log('Report updated:', report);
+      // Save updated report
+      chrome.storage.local.set({ auditReport: report }, function () {
+        console.log('Report saved successfully. Total errors:', errors.length);
+        resolve({ success: true, errorCount: errors.length });
+      });
     });
   });
 }

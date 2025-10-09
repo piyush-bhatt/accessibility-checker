@@ -1,6 +1,6 @@
-# Accessibility Checker - Chrome Extension v1.4.0
+# Accessibility Checker - Chrome Extension v1.7.0
 
-A Chrome extension to audit accessibility issues within specific page containers, with support for multi-page flows and 16 WCAG 2.1 Level AA checks.
+A Chrome extension to audit accessibility issues within specific page containers, with support for multi-page flows, 16 WCAG 2.1 Level AA checks, and **full container screenshots** with scrollable modal view.
 
 ---
 
