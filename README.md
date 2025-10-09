@@ -509,6 +509,6 @@ This project is open source. You can use, modify, and distribute it freely.
 
 ---
 
-**Developed with ❤️ to improve web accessibility**
+**Developed by Jairo Costa with ❤️ to improve web accessibility**
 
 Questions or suggestions? Open an issue on GitHub.
