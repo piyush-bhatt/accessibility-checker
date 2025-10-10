@@ -170,6 +170,8 @@ async function storeErrorsInReport(errors, customFlowName = null) {
             const details = getElementDetails(error.element);
             const errorCode = getErrorCode(error.message);
             const screenshot = error.screenshot || null;
+            const html = error.html || '';
+            const parentHTML = error.parentHTML || '';
 
             pageErrors.push({
               errorCode: errorCode,
@@ -185,6 +187,9 @@ async function storeErrorsInReport(errors, customFlowName = null) {
               innerText: details.innerText,
               position: details.position,
               size: details.size,
+              // HTML context for debugging
+              html: html,
+              parentHTML: parentHTML,
             });
           } catch (err) {
             console.error(

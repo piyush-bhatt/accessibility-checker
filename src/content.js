@@ -1140,6 +1140,38 @@ function checkEmptyElements(elements, errors) {
 
 // ===== ADVANCED ACCESSIBILITY CHECKS =====
 
+// Helper function to get element HTML for debugging
+function getElementHTML(element, maxLength = 200) {
+  try {
+    let html = element.outerHTML;
+
+    // If too long, truncate but keep structure visible
+    if (html.length > maxLength) {
+      const tagMatch = html.match(/^<([^\s>]+)([^>]*)>/);
+      if (tagMatch) {
+        const tagName = tagMatch[1];
+        const attrs = tagMatch[2];
+        const closingTag = `</${tagName}>`;
+        const availableLength =
+          maxLength - tagName.length - closingTag.length - 10;
+
+        if (attrs.length > availableLength) {
+          return `<${tagName}${attrs.substring(
+            0,
+            availableLength
+          )}...${closingTag}`;
+        }
+        return `<${tagName}${attrs}>...${closingTag}`;
+      }
+      return html.substring(0, maxLength) + '...';
+    }
+
+    return html;
+  } catch (e) {
+    return `<${element.tagName.toLowerCase()} class="${element.className}">`;
+  }
+}
+
 function checkFocusVisible(elements, errors) {
   let count = 0;
 
@@ -1340,6 +1372,7 @@ function checkAltText(elements, errors) {
         errors.push({
           element: element,
           message: `Icon accessibility: Empty icon container (no icon, 0x0px) - remove or add icon`,
+          html: getElementHTML(element),
         });
         count++;
         return;
@@ -1352,11 +1385,17 @@ function checkAltText(elements, errors) {
           return; // Icon-only button - the button itself will be checked for size
         }
 
+        const parentHTML = parentButton
+          ? getElementHTML(parentButton, 150)
+          : '';
+
         errors.push({
           element: element,
           message: shouldBeHidden
             ? `Icon accessibility: Decorative icon without aria-hidden="true"`
             : `Icon accessibility: Icon without aria-label or text content`,
+          html: getElementHTML(element),
+          parentHTML: parentHTML,
         });
         count++;
       }

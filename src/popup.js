@@ -1083,14 +1083,38 @@ document.addEventListener('DOMContentLoaded', function () {
         htmlContent += `<h3>📄 Page: ${pageName} (${errors.length} errors)</h3>`;
 
         errors.forEach((error, index) => {
+          // Check if element is at position 0,0
+          const isAtOrigin = error.position && error.position === 'x:0, y:0';
+
           htmlContent += `
             <div class="error-card">
                 <div class="error-screenshot">
                     ${
                       error.screenshot
-                        ? `<img src="${error.screenshot}" alt="Element screenshot" title="Click to view full size with scroll" />
-                           <div class="error-screenshot-hint">📸 Full container screenshot - Click to view complete image</div>`
-                        : '<div class="no-image">No screenshot available</div>'
+                        ? `<img src="${
+                            error.screenshot
+                          }" alt="Element screenshot" title="Click to view full size with scroll" />
+                           <div class="error-screenshot-hint">📸 Full container screenshot - Click to view complete image</div>
+                           ${
+                             isAtOrigin
+                               ? `<div class="error-screenshot-hint" style="background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 8px;">
+                              ⚠️ <strong>Position (0,0) detected:</strong> This element is likely hidden, overlapping, or positioned at the top-left corner of the viewport. 
+                              Screenshot may show the entire viewport instead of the specific element. Check the Element HTML below for more context.
+                           </div>`
+                               : ''
+                           }
+                           `
+                        : `<div class="no-image">No screenshot available</div>
+                           ${
+                             isAtOrigin
+                               ? `<div class="error-screenshot-hint" style="background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 8px;">
+                              ⚠️ <strong>Position (0,0) detected:</strong> This element is positioned at coordinates x:0, y:0. 
+                              This typically indicates a hidden element, floating panel, or absolutely positioned component. 
+                              The screenshot may not be available or may not accurately represent the element's visual context. 
+                              Inspect the Element HTML below to identify the component.
+                           </div>`
+                               : ''
+                           }`
                     }
                 </div>
                 <div class="error-details">
@@ -1158,6 +1182,26 @@ document.addEventListener('DOMContentLoaded', function () {
                             ? `<div class="meta-item">
                             <div class="meta-label">Text Content</div>
                             <div class="meta-value">${error.innerText}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.html
+                            ? `<div class="meta-item" style="grid-column: 1 / -1;">
+                            <div class="meta-label">Element HTML</div>
+                            <div class="meta-value" style="font-family: monospace; background: #f8f9fa; padding: 8px; border-radius: 4px; word-break: break-all; white-space: pre-wrap;">${error.html
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.parentHTML
+                            ? `<div class="meta-item" style="grid-column: 1 / -1;">
+                            <div class="meta-label">Parent Element HTML</div>
+                            <div class="meta-value" style="font-family: monospace; background: #fff3cd; padding: 8px; border-radius: 4px; word-break: break-all; white-space: pre-wrap;">${error.parentHTML
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')}</div>
                         </div>`
                             : ''
                         }
