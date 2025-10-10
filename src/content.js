@@ -67,14 +67,14 @@ function promiseWithTimeout(promise, timeoutMs) {
 /**
  * Helper function to retry a screenshot capture with exponential backoff
  * @param {Function} captureFunc - Function that returns a promise
- * @param {number} maxRetries - Maximum number of retries
- * @param {number} timeoutMs - Timeout per attempt
+ * @param {number} maxRetries - Maximum number of retries (default 1 to respect quota)
+ * @param {number} timeoutMs - Timeout per attempt (default 5000ms)
  * @returns {Promise} Screenshot data or null
  */
 async function retryScreenshotCapture(
   captureFunc,
-  maxRetries = 2,
-  timeoutMs = 3000
+  maxRetries = 1,
+  timeoutMs = 5000
 ) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -225,13 +225,17 @@ async function captureElementScreenshot(element, container = null) {
         inline: 'center',
       });
 
-      // Wait for scroll to complete
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Wait for scroll to complete and rendering
+      // Optimized: 150ms is sufficient for scroll completion
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
       // Get positions after scroll
       const elementRectAfterScroll = element.getBoundingClientRect();
       const captureTargetRectAfterScroll =
         captureTarget.getBoundingClientRect();
+
+      // Add small delay before capture to respect quota
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Capture screenshot via background script
       const response = await new Promise((resolve) => {
@@ -1360,34 +1364,11 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
 
     // Capture screenshots for all errors (async, in batches to avoid timeout)
     console.log(`Capturing screenshots for ${errors.length} errors...`);
-    const BATCH_SIZE = 8; // Process 8 screenshots at a time (increased from 5)
-    const MAX_SCREENSHOTS = 150; // Increased limit with better error handling
+    const BATCH_SIZE = 2; // CRITICAL: Max 2 per second to respect Chrome's quota
+    const MAX_SCREENSHOTS = 100; // Reduced to avoid memory issues
+    const DELAY_BETWEEN_BATCHES = 1100; // 1.1 seconds to respect quota (2 captures/second)
 
-    // Adaptive compression: lower quality for more screenshots
-    let compressionQuality = 0.6; // Default quality
-    let maxImageWidth = 800; // Default width
-
-    if (errors.length > 100) {
-      compressionQuality = 0.35; // Lower quality for many errors
-      maxImageWidth = 550; // Smaller images
-      console.log('Using high compression (100+ errors detected)');
-    } else if (errors.length > 75) {
-      compressionQuality = 0.4; // Lower quality for many errors
-      maxImageWidth = 600; // Smaller images
-      console.log('Using medium-high compression (75+ errors detected)');
-    } else if (errors.length > 50) {
-      compressionQuality = 0.5; // Medium quality
-      maxImageWidth = 700;
-      console.log('Using medium compression');
-    } else {
-      console.log('Using standard compression');
-    }
-
-    // Store compression settings globally for use in screenshot function
-    window._screenshotCompressionQuality = compressionQuality;
-    window._screenshotMaxWidth = maxImageWidth;
-
-    // Filter out errors at position (0,0) to save memory
+    // Filter out errors at position (0,0) FIRST to save memory
     // These elements are typically hidden/overlapping and screenshots are less useful
     const errorsToCapture = errors
       .filter((error) => {
@@ -1412,6 +1393,39 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
       return elementRect.left === 0 && elementRect.top === 0;
     }).length;
 
+    // Adaptive compression: BASED ON ACTUAL CAPTURES (after filtering 0,0)
+    // This prioritizes non-(0,0) elements with better quality
+    let compressionQuality = 0.6; // Default quality
+    let maxImageWidth = 800; // Default width
+
+    if (errorsToCapture.length > 80) {
+      compressionQuality = 0.35; // Lower quality for many errors
+      maxImageWidth = 550; // Smaller images
+      console.log(
+        `Using high compression (${errorsToCapture.length} non-(0,0) errors to capture)`
+      );
+    } else if (errorsToCapture.length > 60) {
+      compressionQuality = 0.4; // Medium-low quality
+      maxImageWidth = 600; // Smaller images
+      console.log(
+        `Using medium-high compression (${errorsToCapture.length} non-(0,0) errors)`
+      );
+    } else if (errorsToCapture.length > 40) {
+      compressionQuality = 0.5; // Medium quality
+      maxImageWidth = 700;
+      console.log(
+        `Using medium compression (${errorsToCapture.length} non-(0,0) errors)`
+      );
+    } else {
+      console.log(
+        `Using standard compression (${errorsToCapture.length} non-(0,0) errors)`
+      );
+    }
+
+    // Store compression settings globally for use in screenshot function
+    window._screenshotCompressionQuality = compressionQuality;
+    window._screenshotMaxWidth = maxImageWidth;
+
     console.log(
       `Processing ${errorsToCapture.length} screenshots in batches of ${BATCH_SIZE}... (${skippedCount} skipped at position 0,0)`
     );
@@ -1424,10 +1438,11 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
         batch.map(async (error, batchIndex) => {
           try {
             // Use retry logic with timeout
+            // Reduced retries to avoid exceeding Chrome's capture quota
             error.screenshot = await retryScreenshotCapture(
               () => captureElementScreenshot(error.element, container),
-              2, // max 2 retries
-              3000 // 3 second timeout per attempt
+              1, // max 1 retry (down from 2) to respect quota
+              5000 // 5 second timeout per attempt
             );
 
             if (error.screenshot) {
@@ -1456,9 +1471,12 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
         `Screenshot progress: ${progress}% (${capturedCount} captured, ${failedCount} failed)`
       );
 
-      // Add small delay between batches to avoid overwhelming the browser
+      // CRITICAL: Wait 1.1 seconds between batches to respect Chrome's quota
+      // Chrome allows max 2 captureVisibleTab calls per second
       if (i + BATCH_SIZE < errorsToCapture.length) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) =>
+          setTimeout(resolve, DELAY_BETWEEN_BATCHES)
+        );
       }
     }
 

@@ -119,10 +119,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Capture screenshot of visible tab (full page)
     (async () => {
       try {
-        // Capture the visible tab
+        // Small delay to ensure page is fully rendered
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        // Capture the visible tab with JPEG compression to reduce memory usage
         const dataUrl = await chrome.tabs.captureVisibleTab(null, {
-          format: 'png',
-          quality: 90,
+          format: 'jpeg',
+          quality: 70,
         });
 
         sendResponse({ dataUrl: dataUrl });
