@@ -50,6 +50,55 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 });
 
 /**
+ * Helper function to add timeout to a promise
+ * @param {Promise} promise - The promise to add timeout to
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @returns {Promise} Promise that rejects if timeout is exceeded
+ */
+function promiseWithTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Screenshot timeout')), timeoutMs)
+    ),
+  ]);
+}
+
+/**
+ * Helper function to retry a screenshot capture with exponential backoff
+ * @param {Function} captureFunc - Function that returns a promise
+ * @param {number} maxRetries - Maximum number of retries
+ * @param {number} timeoutMs - Timeout per attempt
+ * @returns {Promise} Screenshot data or null
+ */
+async function retryScreenshotCapture(
+  captureFunc,
+  maxRetries = 2,
+  timeoutMs = 3000
+) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Attempt capture with timeout
+      const result = await promiseWithTimeout(captureFunc(), timeoutMs);
+      return result;
+    } catch (error) {
+      console.warn(`Screenshot attempt ${attempt} failed:`, error.message);
+
+      // If this was the last attempt, return null
+      if (attempt === maxRetries) {
+        console.error('All screenshot attempts failed');
+        return null;
+      }
+
+      // Wait before retrying (exponential backoff)
+      const delay = 100 * attempt; // 100ms, 200ms, etc.
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  return null;
+}
+
+/**
  * Capture screenshot centered on element with error
  * Scrolls to element, captures visible viewport, and adds highlight
  * @param {HTMLElement} element - Element with error
@@ -71,30 +120,51 @@ async function captureElementScreenshot(element, container = null) {
     const is0x0 = elementRect.width === 0 && elementRect.height === 0;
     const isTooSmall = elementRect.width < 5 && elementRect.height < 5;
 
-    // For 0x0 elements, find the first visible parent to capture
+    // Minimum reasonable size for a parent element to capture (in pixels)
+    const MIN_PARENT_WIDTH = 40;
+    const MIN_PARENT_HEIGHT = 40;
+
+    // For 0x0 or very small elements, find the first parent with reasonable dimensions
     let captureTarget = element;
     let captureTargetRect = elementRect;
+    let needsParentCapture = is0x0 || isTooSmall;
 
-    if (is0x0) {
-      console.log('Element is 0x0, searching for visible parent...');
+    if (needsParentCapture) {
+      console.log(
+        'Element is 0x0 or too small, searching for visible parent with reasonable size...',
+        {
+          elementTag: element.tagName,
+          elementClass: element.className,
+          elementSize: `${elementRect.width}x${elementRect.height}`,
+          elementPosition: `x:${Math.round(elementRect.left)}, y:${Math.round(
+            elementRect.top
+          )}`,
+        }
+      );
 
-      // Walk up the DOM tree to find a visible parent
+      // Walk up the DOM tree to find a parent with reasonable dimensions
       let parent = element.parentElement;
       let attempts = 0;
-      const maxAttempts = 10; // Limit search depth
+      const maxAttempts = 15; // Increased depth for better parent finding
 
       while (parent && attempts < maxAttempts) {
         const parentRect = parent.getBoundingClientRect();
 
-        // Found a parent with visible dimensions
-        if (parentRect.width > 0 && parentRect.height > 0) {
+        // Found a parent with reasonable dimensions (not just > 0)
+        const hasReasonableWidth = parentRect.width >= MIN_PARENT_WIDTH;
+        const hasReasonableHeight = parentRect.height >= MIN_PARENT_HEIGHT;
+
+        if (hasReasonableWidth && hasReasonableHeight) {
           captureTarget = parent;
           captureTargetRect = parentRect;
-          console.log('Found visible parent:', {
+          console.log('✓ Found suitable parent:', {
             tag: parent.tagName,
             class: parent.className,
-            width: parentRect.width,
-            height: parentRect.height,
+            width: Math.round(parentRect.width),
+            height: Math.round(parentRect.height),
+            position: `x:${Math.round(parentRect.left)}, y:${Math.round(
+              parentRect.top
+            )}`,
           });
           break;
         }
@@ -103,28 +173,43 @@ async function captureElementScreenshot(element, container = null) {
         attempts++;
       }
 
-      // If we couldn't find a visible parent, use body as fallback
-      if (captureTargetRect.width === 0 && captureTargetRect.height === 0) {
-        console.warn('Could not find visible parent, using body');
+      // If we couldn't find a suitable parent, use body as fallback
+      if (
+        captureTargetRect.width < MIN_PARENT_WIDTH ||
+        captureTargetRect.height < MIN_PARENT_HEIGHT
+      ) {
+        console.warn('Could not find suitable parent, using body as fallback');
         captureTarget = document.body;
         captureTargetRect = document.body.getBoundingClientRect();
       }
     }
 
-    const captureSmallElement = is0x0 || isTooSmall;
-
-    if (captureSmallElement) {
-      console.log('Capturing small/empty element with parent context:', {
-        element: element.tagName,
-        elementRect: elementRect,
-        captureTarget: captureTarget.tagName,
-        captureRect: captureTargetRect,
-        is0x0: is0x0,
+    // Log what we're about to capture
+    if (needsParentCapture) {
+      console.log('📸 Capturing parent with marker for small/empty element:', {
+        element: `<${element.tagName.toLowerCase()}> (${Math.round(
+          elementRect.width
+        )}x${Math.round(elementRect.height)})`,
+        elementPosition: `x:${Math.round(elementRect.left)}, y:${Math.round(
+          elementRect.top
+        )}`,
+        captureTarget: `<${captureTarget.tagName.toLowerCase()}>`,
+        targetSize: `${Math.round(captureTargetRect.width)}x${Math.round(
+          captureTargetRect.height
+        )}`,
+        targetPosition: `x:${Math.round(
+          captureTargetRect.left
+        )}, y:${Math.round(captureTargetRect.top)}`,
       });
     } else {
-      console.log('Capturing screenshot of element only (cropped):', {
+      console.log('📸 Capturing element directly:', {
         element: element.tagName,
-        rect: elementRect,
+        size: `${Math.round(elementRect.width)}x${Math.round(
+          elementRect.height
+        )}`,
+        position: `x:${Math.round(elementRect.left)}, y:${Math.round(
+          elementRect.top
+        )}`,
       });
     }
 
@@ -169,10 +254,34 @@ async function captureElementScreenshot(element, container = null) {
         );
       }
 
-      // If we're capturing a parent, we need to highlight the original element position
-      // within the parent's screenshot
-      if (is0x0) {
-        // Capture the parent but mark where the 0x0 element should be
+      // Verify that the capture target is actually visible in the viewport after scroll
+      const isTargetVisible =
+        captureTargetRectAfterScroll.top >= 0 &&
+        captureTargetRectAfterScroll.left >= 0 &&
+        captureTargetRectAfterScroll.bottom <= window.innerHeight &&
+        captureTargetRectAfterScroll.right <= window.innerWidth;
+
+      if (!isTargetVisible) {
+        console.warn('⚠️ Capture target not fully visible after scroll:', {
+          target: captureTarget.tagName,
+          rect: {
+            top: Math.round(captureTargetRectAfterScroll.top),
+            left: Math.round(captureTargetRectAfterScroll.left),
+            bottom: Math.round(captureTargetRectAfterScroll.bottom),
+            right: Math.round(captureTargetRectAfterScroll.right),
+          },
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          },
+        });
+      }
+
+      // If we're capturing a parent (for 0x0 or too small elements),
+      // we need to mark where the original element is within the parent
+      if (needsParentCapture) {
+        console.log('✓ Using parent capture with element marker');
+        // Capture the parent but mark where the empty/small element should be
         return await cropAndHighlightParentWithMarker(
           response.dataUrl,
           captureTargetRectAfterScroll.left,
@@ -182,9 +291,12 @@ async function captureElementScreenshot(element, container = null) {
           elementRectAfterScroll.left,
           elementRectAfterScroll.top,
           element.tagName,
-          captureTarget.tagName
+          captureTarget.tagName,
+          elementRect.width, // Original element width
+          elementRect.height // Original element height
         );
       } else {
+        console.log('✓ Using direct element capture');
         // Normal element capture
         return await cropAndHighlightElement(
           response.dataUrl,
@@ -193,7 +305,7 @@ async function captureElementScreenshot(element, container = null) {
           elementRectAfterScroll.width,
           elementRectAfterScroll.height,
           element.tagName,
-          captureSmallElement
+          false // Not capturing as small element since we have the actual element
         );
       }
     } catch (error) {
@@ -362,7 +474,9 @@ async function cropAndHighlightParentWithMarker(
   elementX,
   elementY,
   elementTag,
-  parentTag
+  parentTag,
+  elementOriginalWidth = 0,
+  elementOriginalHeight = 0
 ) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -370,8 +484,8 @@ async function cropAndHighlightParentWithMarker(
     img.onload = () => {
       const dpr = window.devicePixelRatio || 1;
 
-      // Define margins around parent
-      const margin = 30;
+      // Define margins around parent - larger margin for better context
+      const margin = 40;
 
       // Calculate crop area for parent with margins
       const cropX = Math.max(0, parentX - margin);
@@ -428,55 +542,101 @@ async function cropAndHighlightParentWithMarker(
       );
       ctx.setLineDash([]);
 
-      // Calculate 0x0 element marker position relative to cropped area
+      // Calculate element marker position relative to cropped area
       const markerX = (elementX - cropX) * dpr;
       const markerY = (elementY - cropY) * dpr;
-      const markerSize = 20 * dpr;
+      const markerSize = 25 * dpr; // Larger marker for better visibility
 
-      // Draw red crosshair to mark the 0x0 element position
+      // Draw a prominent marker to indicate the element position
+      // Style 1: Large outer circle with glow effect
+      ctx.shadowColor = '#e74c3c';
+      ctx.shadowBlur = 10 * dpr;
       ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = 4 * dpr;
+      ctx.beginPath();
+      ctx.arc(markerX, markerY, markerSize, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.shadowBlur = 0; // Reset shadow
+
+      // Style 2: Inner filled circle
+      ctx.fillStyle = 'rgba(231, 76, 60, 0.3)'; // Semi-transparent red
+      ctx.beginPath();
+      ctx.arc(markerX, markerY, markerSize * 0.6, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Style 3: Crosshair
+      ctx.strokeStyle = '#fff'; // White crosshair for contrast
       ctx.lineWidth = 3 * dpr;
 
       // Horizontal line
       ctx.beginPath();
-      ctx.moveTo(markerX - markerSize, markerY);
-      ctx.lineTo(markerX + markerSize, markerY);
+      ctx.moveTo(markerX - markerSize * 0.7, markerY);
+      ctx.lineTo(markerX + markerSize * 0.7, markerY);
       ctx.stroke();
 
       // Vertical line
       ctx.beginPath();
-      ctx.moveTo(markerX, markerY - markerSize);
-      ctx.lineTo(markerX, markerY + markerSize);
+      ctx.moveTo(markerX, markerY - markerSize * 0.7);
+      ctx.lineTo(markerX, markerY + markerSize * 0.7);
       ctx.stroke();
 
-      // Draw circle around crosshair
+      // Add small center dot
+      ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(markerX, markerY, markerSize / 2, 0, 2 * Math.PI);
+      ctx.arc(markerX, markerY, 3 * dpr, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Add arrow pointing to the element from above
+      const arrowStartY = markerY - markerSize * 2;
+      const arrowEndY = markerY - markerSize * 1.2;
+
+      ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = 3 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(markerX, arrowStartY);
+      ctx.lineTo(markerX, arrowEndY);
       ctx.stroke();
 
-      // Add label for the 0x0 element
-      const elementInfo = `<${elementTag.toLowerCase()}> (0x0 - empty)`;
-      const labelPadding = 8 * dpr;
-      const labelHeight = 24 * dpr;
-      ctx.font = `bold ${12 * dpr}px Arial`;
+      // Arrow head
+      ctx.fillStyle = '#e74c3c';
+      ctx.beginPath();
+      ctx.moveTo(markerX, arrowEndY);
+      ctx.lineTo(markerX - 6 * dpr, arrowEndY - 8 * dpr);
+      ctx.lineTo(markerX + 6 * dpr, arrowEndY - 8 * dpr);
+      ctx.closePath();
+      ctx.fill();
+
+      // Add label for the element
+      const sizeInfo =
+        elementOriginalWidth === 0 && elementOriginalHeight === 0
+          ? '0x0 - empty'
+          : `${Math.round(elementOriginalWidth)}x${Math.round(
+              elementOriginalHeight
+            )}px`;
+      const elementInfo = `<${elementTag.toLowerCase()}> (${sizeInfo})`;
+      const labelPadding = 10 * dpr;
+      const labelHeight = 28 * dpr;
+      ctx.font = `bold ${13 * dpr}px Arial`;
       const labelWidth = ctx.measureText(elementInfo).width + labelPadding * 2;
 
+      // Position label above the arrow
+      const labelY = arrowStartY - labelHeight - 5 * dpr;
+      const labelX = markerX - labelWidth / 2;
+
+      // Draw label background with border
       ctx.fillStyle = '#e74c3c';
-      ctx.fillRect(
-        markerX - labelWidth / 2,
-        Math.max(0, markerY - markerSize - labelHeight - 5 * dpr),
-        labelWidth,
-        labelHeight
-      );
+      ctx.fillRect(labelX, Math.max(0, labelY), labelWidth, labelHeight);
+
+      // Draw white border for label
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2 * dpr;
+      ctx.strokeRect(labelX, Math.max(0, labelY), labelWidth, labelHeight);
 
       ctx.fillStyle = 'white';
       ctx.fillText(
         elementInfo,
-        markerX - labelWidth / 2 + labelPadding,
-        Math.max(
-          labelHeight - 6 * dpr,
-          markerY - markerSize - labelHeight - 5 * dpr + labelHeight - 6 * dpr
-        )
+        labelX + labelPadding,
+        Math.max(labelHeight - 8 * dpr, labelY + labelHeight - 8 * dpr)
       );
 
       // Add label for parent context (at top of parent box)
@@ -484,7 +644,7 @@ async function cropAndHighlightParentWithMarker(
       ctx.font = `${11 * dpr}px Arial`;
       const parentLabelWidth =
         ctx.measureText(parentInfo).width + labelPadding * 2;
-      const parentLabelHeight = 20 * dpr;
+      const parentLabelHeight = 22 * dpr;
 
       ctx.fillStyle = '#3498db';
       ctx.fillRect(
@@ -1200,17 +1360,21 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
 
     // Capture screenshots for all errors (async, in batches to avoid timeout)
     console.log(`Capturing screenshots for ${errors.length} errors...`);
-    const BATCH_SIZE = 5; // Process 5 screenshots at a time to avoid timeout
-    const MAX_SCREENSHOTS = 100; // Increased limit with compression - we can handle more now
+    const BATCH_SIZE = 8; // Process 8 screenshots at a time (increased from 5)
+    const MAX_SCREENSHOTS = 150; // Increased limit with better error handling
 
     // Adaptive compression: lower quality for more screenshots
     let compressionQuality = 0.6; // Default quality
     let maxImageWidth = 800; // Default width
 
-    if (errors.length > 75) {
+    if (errors.length > 100) {
+      compressionQuality = 0.35; // Lower quality for many errors
+      maxImageWidth = 550; // Smaller images
+      console.log('Using high compression (100+ errors detected)');
+    } else if (errors.length > 75) {
       compressionQuality = 0.4; // Lower quality for many errors
       maxImageWidth = 600; // Smaller images
-      console.log('Using high compression (many errors detected)');
+      console.log('Using medium-high compression (75+ errors detected)');
     } else if (errors.length > 50) {
       compressionQuality = 0.5; // Medium quality
       maxImageWidth = 700;
@@ -1223,21 +1387,61 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
     window._screenshotCompressionQuality = compressionQuality;
     window._screenshotMaxWidth = maxImageWidth;
 
-    // Only capture screenshots for first MAX_SCREENSHOTS errors
-    const errorsToCapture = errors.slice(0, MAX_SCREENSHOTS);
+    // Filter out errors at position (0,0) to save memory
+    // These elements are typically hidden/overlapping and screenshots are less useful
+    const errorsToCapture = errors
+      .filter((error) => {
+        const elementRect = error.element.getBoundingClientRect();
+
+        // Skip if position is (0,0)
+        if (elementRect.left === 0 && elementRect.top === 0) {
+          console.log(
+            '⏭️ Skipping screenshot for element at (0,0):',
+            error.element.tagName
+          );
+          error.screenshot = null; // Explicitly set to null
+          return false;
+        }
+
+        return true;
+      })
+      .slice(0, MAX_SCREENSHOTS);
+
+    const skippedCount = errors.filter((error) => {
+      const elementRect = error.element.getBoundingClientRect();
+      return elementRect.left === 0 && elementRect.top === 0;
+    }).length;
+
+    console.log(
+      `Processing ${errorsToCapture.length} screenshots in batches of ${BATCH_SIZE}... (${skippedCount} skipped at position 0,0)`
+    );
+    let capturedCount = 0;
+    let failedCount = 0;
 
     for (let i = 0; i < errorsToCapture.length; i += BATCH_SIZE) {
       const batch = errorsToCapture.slice(i, i + BATCH_SIZE);
-      await Promise.all(
-        batch.map(async (error) => {
+      const batchResults = await Promise.all(
+        batch.map(async (error, batchIndex) => {
           try {
-            error.screenshot = await captureElementScreenshot(
-              error.element,
-              container
+            // Use retry logic with timeout
+            error.screenshot = await retryScreenshotCapture(
+              () => captureElementScreenshot(error.element, container),
+              2, // max 2 retries
+              3000 // 3 second timeout per attempt
             );
+
+            if (error.screenshot) {
+              capturedCount++;
+            } else {
+              failedCount++;
+              console.warn(
+                `Failed to capture screenshot for error ${i + batchIndex + 1}`
+              );
+            }
           } catch (screenshotError) {
             console.warn('Failed to capture screenshot:', screenshotError);
             error.screenshot = null;
+            failedCount++;
           }
         })
       );
@@ -1248,15 +1452,30 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
         Math.round(((i + BATCH_SIZE) / errorsToCapture.length) * 100)
       );
       chrome.storage.local.set({ analysisProgress: progress });
-      console.log(`Screenshot progress: ${progress}%`);
+      console.log(
+        `Screenshot progress: ${progress}% (${capturedCount} captured, ${failedCount} failed)`
+      );
+
+      // Add small delay between batches to avoid overwhelming the browser
+      if (i + BATCH_SIZE < errorsToCapture.length) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     }
 
-    if (errors.length > MAX_SCREENSHOTS) {
+    // Log summary of screenshot capture
+    console.log(
+      `Screenshot capture complete: ${capturedCount} successful, ${failedCount} failed out of ${errorsToCapture.length} attempts (${skippedCount} skipped at 0,0)`
+    );
+
+    if (errors.length > MAX_SCREENSHOTS + skippedCount) {
       console.log(
-        `Note: Captured screenshots for first ${MAX_SCREENSHOTS} of ${errors.length} errors (with compression)`
+        `Note: Captured screenshots for first ${MAX_SCREENSHOTS} eligible errors of ${errors.length} total (${skippedCount} at position 0,0 were skipped)`
+      );
+    } else if (skippedCount > 0) {
+      console.log(
+        `Note: Skipped ${skippedCount} screenshots for elements at position (0,0) to save memory`
       );
     }
-    console.log('Screenshots captured');
 
     // Highlight all errors
     errors.forEach((error) => highlightError(error.element, error.message));

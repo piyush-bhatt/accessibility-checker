@@ -1021,6 +1021,112 @@ document.addEventListener('DOMContentLoaded', function () {
             background: rgba(231, 76, 60, 0.8);
             transform: rotate(90deg);
         }
+        /* Details/Summary (collapsible pages) styles */
+        details {
+            margin: 15px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            transition: all 0.3s ease;
+        }
+        details:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        details[open] {
+            border-color: #3498db;
+        }
+        summary {
+            cursor: pointer;
+            padding: 15px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            background: #ecf0f1;
+            border-radius: 6px;
+            user-select: none;
+            transition: all 0.2s ease;
+            list-style: none;
+        }
+        summary::-webkit-details-marker {
+            display: none;
+        }
+        summary:hover {
+            background: #d5dbdb;
+        }
+        details[open] summary {
+            background: #3498db;
+            color: white;
+            border-radius: 6px 6px 0 0;
+        }
+        summary::before {
+            content: '▶';
+            display: inline-block;
+            margin-right: 8px;
+            transition: transform 0.3s ease;
+        }
+        details[open] summary::before {
+            transform: rotate(90deg);
+        }
+        .page-content {
+            padding: 15px;
+        }
+        /* Nested details for (0,0) errors - Yellow theme */
+        .page-content details[style*="border: 2px solid #ffc107"] {
+            margin: 10px 0;
+            border: 2px solid #ffc107;
+            background: #fffbf0;
+        }
+        .page-content details[style*="border: 2px solid #ffc107"] summary {
+            padding: 12px;
+            font-size: 15px;
+            color: #856404;
+            background: #fff3cd;
+            border-radius: 4px;
+        }
+        .page-content details[style*="border: 2px solid #ffc107"] summary::before {
+            content: '►';
+            color: #856404;
+        }
+        .page-content details[style*="border: 2px solid #ffc107"][open] summary {
+            background: #ffecb3;
+            color: #7d5e00;
+            border-radius: 4px 4px 0 0;
+        }
+        .page-content details[style*="border: 2px solid #ffc107"][open] summary::before {
+            color: #7d5e00;
+        }
+        .page-content details[style*="border: 2px solid #ffc107"]:hover {
+            box-shadow: 0 2px 6px rgba(255, 193, 7, 0.3);
+        }
+        
+        /* Nested details for negative position errors - Red theme */
+        .page-content details[style*="border: 2px solid #e74c3c"] {
+            margin: 10px 0;
+            border: 2px solid #e74c3c;
+            background: #fff5f5;
+        }
+        .page-content details[style*="border: 2px solid #e74c3c"] summary {
+            padding: 12px;
+            font-size: 15px;
+            color: #c0392b;
+            background: #ffe6e6;
+            border-radius: 4px;
+        }
+        .page-content details[style*="border: 2px solid #e74c3c"] summary::before {
+            content: '►';
+            color: #c0392b;
+        }
+        .page-content details[style*="border: 2px solid #e74c3c"][open] summary {
+            background: #ffcccc;
+            color: #a93226;
+            border-radius: 4px 4px 0 0;
+        }
+        .page-content details[style*="border: 2px solid #e74c3c"][open] summary::before {
+            color: #a93226;
+        }
+        .page-content details[style*="border: 2px solid #e74c3c"]:hover {
+            box-shadow: 0 2px 6px rgba(231, 76, 60, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -1064,6 +1170,46 @@ document.addEventListener('DOMContentLoaded', function () {
         </div>
 `;
 
+    // Helper function to render error codes and messages
+    const renderErrorCodesAndMessages = (error) => {
+      if (error.errorCodes && error.errorCodes.length > 1) {
+        // Multiple errors on same element
+        const codesHtml = error.errorCodes
+          .map(
+            (err) =>
+              `<span class="error-code" style="margin-right: 6px;">${err.code}</span>`
+          )
+          .join('');
+
+        const messagesHtml = `
+          <div style="margin-bottom: 12px;">
+            <strong style="color: #e74c3c; font-size: 14px;">⚠️ Multiple errors on same element (${
+              error.errorCodes.length
+            }):</strong>
+            <ul style="margin: 8px 0; padding-left: 20px; color: #555; line-height: 1.6;">
+              ${error.errorCodes
+                .map(
+                  (err) =>
+                    `<li style="margin: 4px 0;"><strong style="color: #2c3e50;">${err.code}:</strong> ${err.message}</li>`
+                )
+                .join('')}
+            </ul>
+          </div>`;
+
+        return { codesHtml, messagesHtml };
+      } else {
+        // Single error
+        const code =
+          error.errorCode || (error.errorCodes && error.errorCodes[0].code);
+        const message =
+          error.message || (error.errorCodes && error.errorCodes[0].message);
+        return {
+          codesHtml: `<span class="error-code">${code}</span>`,
+          messagesHtml: `<div class="error-message">${message}</div>`,
+        };
+      }
+    };
+
     // Add each flow
     Object.entries(report).forEach(([flowName, pages]) => {
       htmlContent += `<h2>📋 Flow: ${flowName}</h2>`;
@@ -1080,11 +1226,144 @@ document.addEventListener('DOMContentLoaded', function () {
           ? pageData
           : pageData.errors || [];
 
-        htmlContent += `<h3>📄 Page: ${pageName} (${errors.length} errors)</h3>`;
+        // Count errors at (0,0) and negative X positions for the summary
+        const errorsAt00Count = errors.filter(
+          (error) => error.position && error.position === 'x:0, y:0'
+        ).length;
 
-        errors.forEach((error, index) => {
-          // Check if element is at position 0,0
+        // Only count as "negative position error" if X position is negative
+        // (element is to the left of viewport, likely intentionally hidden)
+        // Ignore negative Y positions as they're just elements above viewport due to scroll
+        const negativePositionCount = errors.filter((error) => {
+          if (!error.position) return false;
+          const posMatch = error.position.match(/x:(-?\d+),\s*y:(-?\d+)/);
+          if (posMatch) {
+            const xPos = parseInt(posMatch[1]);
+            // Only consider negative X as problematic (left of viewport)
+            return xPos < 0;
+          }
+          return false;
+        }).length;
+
+        const normalErrorsCount =
+          errors.length - errorsAt00Count - negativePositionCount;
+
+        let summaryText = `(${errors.length} errors`;
+        if (errorsAt00Count > 0 || negativePositionCount > 0) {
+          const parts = [];
+          if (errorsAt00Count > 0) parts.push(`${errorsAt00Count} at 0,0`);
+          if (negativePositionCount > 0)
+            parts.push(`${negativePositionCount} negative pos`);
+          if (normalErrorsCount > 0) parts.push(`${normalErrorsCount} normal`);
+          summaryText += `: ${parts.join(', ')}`;
+        }
+        summaryText += ')';
+
+        htmlContent += `
+        <details>
+          <summary>
+            📄 ${pageName} <span style="color: #7f8c8d; font-weight: normal;">${summaryText}</span>
+          </summary>
+          <div class="page-content">
+        `;
+
+        // Group errors by unique element (position + tagName + className) to avoid duplicates
+        const groupedErrorsMap = new Map();
+        errors.forEach((error) => {
+          // Create unique key using position, tagName and className (always present)
+          // Don't use HTML as it may be inconsistently captured between errors
+          const key = `${error.position || 'no-pos'}_${
+            error.tagName || 'unknown'
+          }_${error.className || 'no-class'}`;
+
+          if (groupedErrorsMap.has(key)) {
+            // Element already exists, add this error code to the array
+            const existingError = groupedErrorsMap.get(key);
+            existingError.errorCodes.push({
+              code: error.errorCode,
+              message: error.message,
+            });
+            // Keep the HTML from whichever error has it (prefer non-empty)
+            if (!existingError.html && error.html) {
+              existingError.html = error.html;
+            }
+            // Keep other properties that might be missing
+            if (!existingError.id && error.id) existingError.id = error.id;
+            if (!existingError.trackId && error.trackId)
+              existingError.trackId = error.trackId;
+            if (!existingError.dataTestId && error.dataTestId)
+              existingError.dataTestId = error.dataTestId;
+            if (!existingError.innerText && error.innerText)
+              existingError.innerText = error.innerText;
+            if (!existingError.parentHTML && error.parentHTML)
+              existingError.parentHTML = error.parentHTML;
+          } else {
+            // First time seeing this element, create new entry
+            groupedErrorsMap.set(key, {
+              ...error,
+              errorCodes: [
+                {
+                  code: error.errorCode,
+                  message: error.message,
+                },
+              ],
+            });
+          }
+        });
+
+        // Convert map to array of grouped errors
+        const groupedErrors = Array.from(groupedErrorsMap.values());
+
+        // Separate grouped errors into three groups: position (0,0), negative X position, and others
+        const errorsAt00 = [];
+        const errorsNegativePos = [];
+        const normalErrors = [];
+
+        groupedErrors.forEach((error) => {
           const isAtOrigin = error.position && error.position === 'x:0, y:0';
+
+          // Only consider negative X positions as problematic (left of viewport)
+          // Negative Y positions are normal (just elements above viewport due to scroll)
+          let hasNegativeXPosition = false;
+          if (error.position && !isAtOrigin) {
+            const posMatch = error.position.match(/x:(-?\d+),\s*y:(-?\d+)/);
+            if (posMatch) {
+              const xPos = parseInt(posMatch[1]);
+              // Only X < 0 is problematic
+              hasNegativeXPosition = xPos < 0;
+            }
+          }
+
+          if (isAtOrigin) {
+            errorsAt00.push(error);
+          } else if (hasNegativeXPosition) {
+            errorsNegativePos.push(error);
+          } else {
+            normalErrors.push(error);
+          }
+        });
+
+        // If there are errors at position (0,0), create a nested collapsible
+        if (errorsAt00.length > 0) {
+          htmlContent += `
+          <details style="margin: 10px 0; border: 2px solid #ffc107; border-radius: 6px; background: #fffbf0;">
+            <summary style="cursor: pointer; padding: 12px; font-size: 15px; font-weight: 600; color: #856404; background: #fff3cd; border-radius: 4px; user-select: none;">
+              ⚠️ Elements at position (0,0) <span style="color: #856404; font-weight: normal;">(${errorsAt00.length} errors - likely hidden/overlapping)</span>
+            </summary>
+            <div style="padding: 10px;">
+          `;
+        }
+
+        // Render errors at (0,0) first
+        errorsAt00.forEach((error, index) => {
+          const isAtOrigin = true; // We know these are at origin
+
+          // For errors at (0,0), we don't need to check negative positions
+          // as the (0,0) warning is already sufficient
+          const hasNegativePosition = false;
+
+          const { codesHtml, messagesHtml } =
+            renderErrorCodesAndMessages(error);
 
           htmlContent += `
             <div class="error-card">
@@ -1097,9 +1376,18 @@ document.addEventListener('DOMContentLoaded', function () {
                            <div class="error-screenshot-hint">📸 Full container screenshot - Click to view complete image</div>
                            ${
                              isAtOrigin
-                               ? `<div class="error-screenshot-hint" style="background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 8px;">
+                               ? `<div class="error-screenshot-hint" style="background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 8px; padding: 8px;">
                               ⚠️ <strong>Position (0,0) detected:</strong> This element is likely hidden, overlapping, or positioned at the top-left corner of the viewport. 
                               Screenshot may show the entire viewport instead of the specific element. Check the Element HTML below for more context.
+                           </div>`
+                               : ''
+                           }
+                           ${
+                             hasNegativePosition
+                               ? `<div class="error-screenshot-hint" style="background: #ffe6e6; border-left: 4px solid #e74c3c; margin-top: 8px; padding: 8px;">
+                              ⚠️ <strong>Negative position detected (${negativeAxis}):</strong> This element is positioned outside the visible viewport (${error.position}). 
+                              It may be hidden off-screen, part of a collapsed menu, or dynamically positioned. 
+                              The screenshot shows the parent container with a marker indicating where the element should be located.
                            </div>`
                                : ''
                            }
@@ -1107,11 +1395,26 @@ document.addEventListener('DOMContentLoaded', function () {
                         : `<div class="no-image">No screenshot available</div>
                            ${
                              isAtOrigin
-                               ? `<div class="error-screenshot-hint" style="background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 8px;">
+                               ? `<div class="error-screenshot-hint" style="background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 8px; padding: 8px;">
                               ⚠️ <strong>Position (0,0) detected:</strong> This element is positioned at coordinates x:0, y:0. 
                               This typically indicates a hidden element, floating panel, or absolutely positioned component. 
                               The screenshot may not be available or may not accurately represent the element's visual context. 
                               Inspect the Element HTML below to identify the component.
+                           </div>`
+                               : ''
+                           }
+                           ${
+                             hasNegativePosition
+                               ? `<div class="error-screenshot-hint" style="background: #ffe6e6; border-left: 4px solid #e74c3c; margin-top: 8px; padding: 8px;">
+                              ⚠️ <strong>Negative position detected (${negativeAxis}):</strong> This element is positioned outside the visible viewport (${error.position}). 
+                              This typically indicates:
+                              <ul style="margin: 5px 0; padding-left: 20px;">
+                                <li>Hidden element moved off-screen (e.g., display:none transition)</li>
+                                <li>Collapsed/hidden menu or dropdown content</li>
+                                <li>Element with negative margins or absolute positioning</li>
+                                <li>Content in a scrollable container that's not in view</li>
+                              </ul>
+                              The screenshot may not be available or may show the parent container. Inspect the Element HTML below to identify the component.
                            </div>`
                                : ''
                            }`
@@ -1119,9 +1422,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
                 <div class="error-details">
                     <div>
-                        <span class="error-code">${error.errorCode}</span>
+                        ${codesHtml}
                     </div>
-                    <div class="error-message">${error.message}</div>
+                    ${messagesHtml}
                     <div class="error-meta">
                         <div class="meta-item">
                             <div class="meta-label">Element</div>
@@ -1210,6 +1513,301 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
           `;
         });
+
+        // Close the (0,0) collapsible if it was opened
+        if (errorsAt00.length > 0) {
+          htmlContent += `
+            </div>
+          </details>
+          `;
+        }
+
+        // If there are errors with negative X positions, create another nested collapsible
+        if (errorsNegativePos.length > 0) {
+          htmlContent += `
+          <details style="margin: 10px 0; border: 2px solid #e74c3c; border-radius: 6px; background: #fff5f5;">
+            <summary style="cursor: pointer; padding: 12px; font-size: 15px; font-weight: 600; color: #c0392b; background: #ffe6e6; border-radius: 4px; user-select: none;">
+              🚫 Elements with negative X position <span style="color: #c0392b; font-weight: normal;">(${errorsNegativePos.length} errors - hidden left of viewport)</span>
+            </summary>
+            <div style="padding: 10px;">
+          `;
+        }
+
+        // Render errors with negative X positions
+        errorsNegativePos.forEach((error, index) => {
+          const isAtOrigin = false;
+
+          // Check if element has negative X position (we know it does, X < 0)
+          let hasNegativePosition = true;
+          let negativeAxis = 'X axis';
+          if (error.position) {
+            const posMatch = error.position.match(/x:(-?\d+),\s*y:(-?\d+)/);
+            if (posMatch) {
+              const xPos = parseInt(posMatch[1]);
+              // We only include X < 0 in this group
+              negativeAxis = 'X axis';
+            }
+          }
+
+          const { codesHtml, messagesHtml } =
+            renderErrorCodesAndMessages(error);
+
+          htmlContent += `
+            <div class="error-card">
+                <div class="error-screenshot">
+                    ${
+                      error.screenshot
+                        ? `<img src="${
+                            error.screenshot
+                          }" alt="Element screenshot" title="Click to view full size with scroll" />
+                           <div class="error-screenshot-hint">📸 Full container screenshot - Click to view complete image</div>
+                           ${
+                             hasNegativePosition
+                               ? `<div class="error-screenshot-hint" style="background: #ffe6e6; border-left: 4px solid #e74c3c; margin-top: 8px; padding: 8px;">
+                              ⚠️ <strong>Negative X position detected (${negativeAxis}):</strong> This element is positioned left of the viewport (${error.position}). 
+                              It may be intentionally hidden off-screen, part of a collapsed menu, or using negative positioning for accessibility purposes (e.g., screen reader only content). 
+                              The screenshot shows the parent container with a marker indicating where the element should be located.
+                           </div>`
+                               : ''
+                           }
+                           `
+                        : `<div class="no-image">No screenshot available</div>
+                           ${
+                             hasNegativePosition
+                               ? `<div class="error-screenshot-hint" style="background: #ffe6e6; border-left: 4px solid #e74c3c; margin-top: 8px; padding: 8px;">
+                              ⚠️ <strong>Negative X position detected (${negativeAxis}):</strong> This element is positioned left of the viewport (${error.position}). 
+                              This typically indicates:
+                              <ul style="margin: 5px 0; padding-left: 20px;">
+                                <li>Hidden element moved off-screen for accessibility (e.g., screen reader only content)</li>
+                                <li>Collapsed/hidden menu or drawer content</li>
+                                <li>Element with negative left positioning (position:absolute; left:-9999px)</li>
+                              </ul>
+                              The screenshot may not be available or may show the parent container. Inspect the Element HTML below to identify the component.
+                           </div>`
+                               : ''
+                           }`
+                    }
+                </div>
+                <div class="error-details">
+                    <div>
+                        ${codesHtml}
+                    </div>
+                    ${messagesHtml}
+                    <div class="error-meta">
+                        <div class="meta-item">
+                            <div class="meta-label">Element</div>
+                            <div class="meta-value">&lt;${
+                              error.tagName
+                            }&gt;</div>
+                        </div>
+                        ${
+                          error.id
+                            ? `<div class="meta-item">
+                            <div class="meta-label">ID</div>
+                            <div class="meta-value">${error.id}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.trackId
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Track ID</div>
+                            <div class="meta-value">${error.trackId}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.dataTestId
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Data-Test-ID</div>
+                            <div class="meta-value">${error.dataTestId}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.className
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Class</div>
+                            <div class="meta-value">${error.className}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.size
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Size</div>
+                            <div class="meta-value">${error.size}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.position
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Position</div>
+                            <div class="meta-value">${error.position}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.innerText
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Text Content</div>
+                            <div class="meta-value">${error.innerText}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.html
+                            ? `<div class="meta-item" style="grid-column: 1 / -1;">
+                            <div class="meta-label">Element HTML</div>
+                            <div class="meta-value" style="font-family: monospace; background: #f8f9fa; padding: 8px; border-radius: 4px; word-break: break-all; white-space: pre-wrap;">${error.html
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.parentHTML
+                            ? `<div class="meta-item" style="grid-column: 1 / -1;">
+                            <div class="meta-label">Parent Element HTML</div>
+                            <div class="meta-value" style="font-family: monospace; background: #fff3cd; padding: 8px; border-radius: 4px; word-break: break-all; white-space: pre-wrap;">${error.parentHTML
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')}</div>
+                        </div>`
+                            : ''
+                        }
+                    </div>
+                </div>
+            </div>
+          `;
+        });
+
+        // Close the negative positions collapsible if it was opened
+        if (errorsNegativePos.length > 0) {
+          htmlContent += `
+            </div>
+          </details>
+          `;
+        }
+
+        // Now render normal errors (not at position 0,0 and no negative positions)
+        normalErrors.forEach((error, index) => {
+          const isAtOrigin = false; // These are NOT at origin
+          // These errors already passed the filter, so they don't have negative positions
+          // No need to check again, just render them
+
+          const { codesHtml, messagesHtml } =
+            renderErrorCodesAndMessages(error);
+
+          htmlContent += `
+            <div class="error-card">
+                <div class="error-screenshot">
+                    ${
+                      error.screenshot
+                        ? `<img src="${error.screenshot}" alt="Element screenshot" title="Click to view full size with scroll" />
+                           <div class="error-screenshot-hint">📸 Full container screenshot - Click to view complete image</div>
+                           `
+                        : `<div class="no-image">No screenshot available</div>`
+                    }
+                </div>
+                <div class="error-details">
+                    <div>
+                        ${codesHtml}
+                    </div>
+                    ${messagesHtml}
+                    <div class="error-meta">
+                        <div class="meta-item">
+                            <div class="meta-label">Element</div>
+                            <div class="meta-value">&lt;${
+                              error.tagName
+                            }&gt;</div>
+                        </div>
+                        ${
+                          error.id
+                            ? `<div class="meta-item">
+                            <div class="meta-label">ID</div>
+                            <div class="meta-value">${error.id}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.trackId
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Track ID</div>
+                            <div class="meta-value">${error.trackId}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.dataTestId
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Data-Test-ID</div>
+                            <div class="meta-value">${error.dataTestId}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.className
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Class</div>
+                            <div class="meta-value">${error.className}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.size
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Size</div>
+                            <div class="meta-value">${error.size}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.position
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Position</div>
+                            <div class="meta-value">${error.position}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.innerText
+                            ? `<div class="meta-item">
+                            <div class="meta-label">Text Content</div>
+                            <div class="meta-value">${error.innerText}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.html
+                            ? `<div class="meta-item" style="grid-column: 1 / -1;">
+                            <div class="meta-label">Element HTML</div>
+                            <div class="meta-value" style="font-family: monospace; background: #f8f9fa; padding: 8px; border-radius: 4px; word-break: break-all; white-space: pre-wrap;">${error.html
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')}</div>
+                        </div>`
+                            : ''
+                        }
+                        ${
+                          error.parentHTML
+                            ? `<div class="meta-item" style="grid-column: 1 / -1;">
+                            <div class="meta-label">Parent Element HTML</div>
+                            <div class="meta-value" style="font-family: monospace; background: #fff3cd; padding: 8px; border-radius: 4px; word-break: break-all; white-space: pre-wrap;">${error.parentHTML
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')}</div>
+                        </div>`
+                            : ''
+                        }
+                    </div>
+                </div>
+            </div>
+          `;
+        });
+
+        htmlContent += `
+          </div>
+        </details>
+        `;
       });
     });
 
