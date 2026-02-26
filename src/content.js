@@ -1254,20 +1254,54 @@ function highlightAuditContainer(container) {
   container.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-async function runAccessibilityAudit(divClass, options, flowName = null) {
-  try {
-    // Find the target container - try both class selector and tag name
-    let container = document.querySelector(`.${divClass}`);
+// Helper function to find element in regular and shadow DOM
+function findElement(selector, root = document) {
+  let element = root.querySelector(selector);
+  if (element) return element;
 
-    // If not found as class, try as tag name (for Angular custom elements like <app-int>)
-    if (!container) {
-      container = document.querySelector(divClass);
+  // Try as class selector
+  element = root.querySelector(`.${selector}`);
+  if (element) return element;
+
+  // Search in all shadow roots
+  const allElements = root.querySelectorAll("*");
+  for (const el of allElements) {
+    if (el.shadowRoot) {
+      const elementInShadowRoot = findElement(selector, el.shadowRoot);
+      if (elementInShadowRoot) return elementInShadowRoot;
     }
+  }
+
+  return null;
+}
+
+// Helper function to get all elements including those in shadow DOM
+function getAllElementsIncludingShadowDOM(root) {
+  const elements = [];
+
+  // Get all elements in current root
+  const allElements = root.querySelectorAll("*");
+  elements.push(...allElements);
+
+  // Get elements from shadow roots
+  for (const el of allElements) {
+    if (el.shadowRoot) {
+      const shadowElements = getAllElementsIncludingShadowDOM(el.shadowRoot);
+      elements.push(...shadowElements);
+    }
+  }
+
+  return elements;
+}
+
+async function runAccessibilityAudit(selector, options, flowName = null) {
+  try {
+    let container = findElement(selector);
 
     if (!container) {
       return {
         success: false,
-        error: `Element with selector "${divClass}" not found on this page. Try without the dot (.) for custom elements.`,
+        error: `Element with selector "${selector}" not found on this page (searched regular DOM and shadow DOM).`,
       };
     }
 
@@ -1277,8 +1311,8 @@ async function runAccessibilityAudit(divClass, options, flowName = null) {
     let errorCount = 0;
     const errors = [];
 
-    // Get all elements within the container
-    const allElements = container.querySelectorAll('*');
+    // Get all elements within the container (including shadow DOM)
+    const allElements = getAllElementsIncludingShadowDOM(container);
 
     // 1. Check font size (min 14px)
     if (options.fontSize) {
